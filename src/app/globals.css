@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+/*
+  CotizaAI — tokens del design system (ver DESIGN.md).
+  Paleta base: Miami Dolphins 2013–2017 (aqua / azul / naranja).
+  Dark mode por `data-theme="dark"` en <html> (no prefers-color-scheme).
+*/
+
+:root {
+  /* Marca */
+  --brand-aqua: #008e97;
+  --brand-aqua-700: #006e76;
+  --brand-blue: #005778;
+  --brand-blue-900: #003b52;
+  --brand-orange: #f58220;
+  --brand-orange-600: #d86e12;
+
+  /* Superficies y texto (light) */
+  --bg: #ffffff;
+  --surface: #f5f8f9;
+  --surface-elevated: #ffffff;
+  --border: #d7e0e3;
+  --text: #23363d;
+  --text-muted: #5b7079;
+  --text-heading: #0f2a33;
+
+  /* Semánticos */
+  --success: #16a34a;
+  --warning: #f58220;
+  --error: #dc2626;
+  --info: #008e97;
+
+  /* Primario derivado */
+  --primary: var(--brand-aqua);
+  --primary-hover: var(--brand-aqua-700);
+  --primary-fg: #ffffff;
+
+  /* Sombras */
+  --shadow-sm: 0 1px 2px rgba(15, 42, 51, 0.06);
+  --shadow-md: 0 4px 12px rgba(15, 42, 51, 0.08);
+  --shadow-lg: 0 12px 32px rgba(15, 42, 51, 0.12);
+
+  /* Radios */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 9999px;
+}
+
+[data-theme="dark"] {
+  --bg: #04161b;
+  --surface: #0a2730;
+  --surface-elevated: #0e323d;
+  --border: #163945;
+  --text: #dde8eb;
+  --text-muted: #8aa3ab;
+  --text-heading: #f0f6f7;
+
+  --brand-aqua: #19a7b0;
+  --primary: #19a7b0;
+  --primary-hover: #43bcc4;
+  --brand-orange: #ff9a3d;
+  --warning: #ff9a3d;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+/* Exponer tokens como utilidades Tailwind v4 (bg-bg, text-text, bg-primary…) */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-heading: var(--text-heading);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-fg);
+
+  --color-brand-aqua: var(--brand-aqua);
+  --color-brand-blue: var(--brand-blue);
+  --color-brand-blue-900: var(--brand-blue-900);
+  --color-brand-orange: var(--brand-orange);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-info: var(--info);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Números tabulares para montos/cotizaciones */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

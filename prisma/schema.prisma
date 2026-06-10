@@ -1,0 +1,319 @@
+// CotizaAI — Prisma schema (multi-tenant)
+//
+// REGLAS CLAVE DE MULTI-TENANCY:
+// - Toda tabla de datos de negocio lleva `tenantId` y un índice por `tenantId`.
+// - Las queries SIEMPRE filtran por `tenantId` (derivado de la sesión Clerk,
+//   NUNCA del body del cliente). Helper central en src/lib/tenant.ts.
+// - Auth/orgs viven en Clerk; acá mantenemos un espejo (Tenant/User/Membership)
+//   sincronizado por webhooks de Clerk para tener FKs e info de negocio.
+//
+// EMBEDDINGS / pgvector:
+// - La columna `embedding vector(768)` de BudgetChunk se agrega y consulta con
+//   SQL crudo ($queryRaw/$executeRaw). NO se declara acá (Prisma no soporta el
+//   tipo vector nativamente). Ver prisma/migrations + src/lib/embeddings.ts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7: las URLs viven en prisma.config.ts (no en el schema).
+datasource db {
+  provider = "postgresql"
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ──────────────────────────────────────────────────────────────────────────
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum HistoricalBudgetStatus {
+  PENDING_REVIEW // extraído por IA, esperando revisión humana
+  INDEXED        // revisado e indexado para RAG
+  ARCHIVED
+}
+
+enum GeneratedBudgetStatus {
+  DRAFT
+  FINAL
+}
+
+enum UsageOperation {
+  GENERATION
+  EMBEDDING
+  EXTRACTION
+}
+
+enum SubscriptionPlan {
+  FREE
+  STARTER
+  PRO
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+enum AuditAction {
+  TENANT_CREATED
+  MEMBER_INVITED
+  HISTORICAL_UPLOADED
+  HISTORICAL_INDEXED
+  BUDGET_GENERATED
+  PROFILE_UPDATED
+  SUBSCRIPTION_CHANGED
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// TENANT / USUARIOS / MEMBRESÍAS  (espejo de Clerk)
+// ──────────────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id              String   @id @default(uuid()) @db.Uuid
+  clerkOrgId      String   @unique // org de Clerk = tenant
+  name            String
+  slug            String   @unique
+  country         String   @default("AR") // ISO-3166 alpha-2; default Argentina
+  defaultCurrency String   @default("ARS")
+  locale          String   @default("es-AR")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  memberships       Membership[]
+  profile           CompanyProfile?
+  aiConfig          TenantAiConfig?
+  subscription      Subscription?
+  historicalBudgets HistoricalBudget[]
+  budgetChunks      BudgetChunk[]
+  generatedBudgets  GeneratedBudget[]
+  usageRecords      UsageRecord[]
+  auditLogs         AuditLog[]
+
+  @@index([clerkOrgId])
+}
+
+model User {
+  id          String   @id @default(uuid()) @db.Uuid
+  clerkUserId String   @unique
+  email       String   @unique
+  name        String?
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships      Membership[]
+  generatedBudgets GeneratedBudget[]
+  auditLogs        AuditLog[]
+}
+
+model Membership {
+  id        String         @id @default(uuid()) @db.Uuid
+  tenantId  String         @db.Uuid
+  userId    String         @db.Uuid
+  role      MembershipRole @default(MEMBER)
+  createdAt DateTime       @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([userId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// PERFIL / CONFIGURACIÓN POR EMPRESA
+// ──────────────────────────────────────────────────────────────────────────
+
+// El "ADN" del tenant: rubro, tono, unidades y branding. Es lo único (junto a
+// los históricos) que cambia entre empresas. El `industryPrompt` se inyecta al
+// prompt maestro del generador.
+model CompanyProfile {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @unique @db.Uuid
+  industry       String?  // rubro: "construcción", "imprenta", "eventos"...
+  tone           String?  // tono de redacción del presupuesto
+  defaultUnits   String?  // unidades típicas (m2, hs, unidad...)
+  industryPrompt String?  @db.Text // perfil/prompt editable del rubro
+  // Branding (se inyecta en los documentos generados)
+  logoUrl        String?
+  colorPrimary   String?  // hex
+  colorSecondary String?  // hex
+  companyData    Json?    // razón social, CUIT, dirección, contacto, etc.
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// Override por tenant del catálogo de proveedores de IA. Si no existe registro,
+// se usan los defaults globales definidos en código (src/lib/ai/providers.ts).
+model TenantAiConfig {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @unique @db.Uuid
+  enabledProviders  String[] // ids de providers.ts; vacío = todos
+  defaultChat       String?
+  defaultGeneration String?
+  updatedAt         DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// HISTÓRICOS + RAG (chunks vectoriales)
+// ──────────────────────────────────────────────────────────────────────────
+
+model HistoricalBudget {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  tenantId           String                 @db.Uuid
+  title              String
+  client             String?
+  location           String?
+  amount             Decimal?               @db.Decimal(18, 2)
+  currency           String                 @default("ARS")
+  documentDate       DateTime? // fecha del presupuesto original (para inflación)
+  sourceFileUrl      String? // PDF original en object storage
+  sourceFileName     String?
+  rawText            String?                @db.Text // texto crudo extraído (fallback)
+  structuredContent  Json? // cajitas semánticas extraídas por IA
+  status             HistoricalBudgetStatus @default(PENDING_REVIEW)
+  createdByAI        Boolean                @default(false)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chunks BudgetChunk[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+// Store vectorial para RAG. Una fila por chunk de un histórico.
+// La columna `embedding vector(768)` se agrega vía SQL crudo (no en Prisma) y
+// se consulta con `embedding <=> $1` (distancia coseno), SIEMPRE filtrando por
+// tenantId para aislar los embeddings entre empresas.
+model BudgetChunk {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @db.Uuid
+  budgetId   String   @db.Uuid
+  chunkIndex Int
+  content    String   @db.Text
+  createdAt  DateTime @default(now())
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  budget HistoricalBudget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([budgetId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// PRESUPUESTOS GENERADOS
+// ──────────────────────────────────────────────────────────────────────────
+
+model GeneratedBudget {
+  id            String                @id @default(uuid()) @db.Uuid
+  tenantId      String                @db.Uuid
+  createdById   String                @db.Uuid
+  title         String
+  requestPrompt String                @db.Text // pedido en lenguaje natural
+  content       Json // bloques tipados (titulo/parrafo/lista/tabla/imagen)
+  totalAmount   Decimal?              @db.Decimal(18, 2)
+  currency      String                @default("ARS")
+  status        GeneratedBudgetStatus @default(DRAFT)
+  ragSourceIds  String[] // ids de históricos usados (trazabilidad)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User   @relation(fields: [createdById], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// INFLACIÓN (pluggable por país/moneda)
+// ──────────────────────────────────────────────────────────────────────────
+
+// Índices mensuales (IPC). Default INDEC para AR/ARS, pero diseñado para sumar
+// otros países/monedas. montoActualizado NO se persiste: se calcula en runtime.
+model InflationIndex {
+  id          String   @id @default(uuid()) @db.Uuid
+  country     String   @default("AR")
+  currency    String   @default("ARS")
+  year        Int
+  month       Int // 1–12
+  monthlyRate Float // decimal: 2.6% → 0.026
+  source      String? // "INDEC", "manual"...
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([country, currency, year, month])
+  @@index([country, currency, year, month])
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// USO / BILLING
+// ──────────────────────────────────────────────────────────────────────────
+
+// Tracking de tokens por tenant (pricing, límites, analítica de costos).
+model UsageRecord {
+  id               String         @id @default(uuid()) @db.Uuid
+  tenantId         String         @db.Uuid
+  userId           String?        @db.Uuid
+  operation        UsageOperation
+  provider         String
+  model            String
+  promptTokens     Int            @default(0)
+  completionTokens Int            @default(0)
+  totalTokens      Int            @default(0)
+  costEstimateUsd  Decimal?       @db.Decimal(12, 6)
+  createdAt        DateTime       @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+}
+
+model Subscription {
+  id                   String             @id @default(uuid()) @db.Uuid
+  tenantId             String             @unique @db.Uuid
+  plan                 SubscriptionPlan   @default(FREE)
+  status               SubscriptionStatus @default(TRIALING)
+  // Proveedor de pago (Stripe internacional; Mercado Pago a evaluar para AR)
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// AUDITORÍA
+// ──────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id          String      @id @default(uuid()) @db.Uuid
+  tenantId    String      @db.Uuid
+  actorUserId String?     @db.Uuid
+  action      AuditAction
+  payload     Json?
+  createdAt   DateTime    @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actor  User?  @relation(fields: [actorUserId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+}
