@@ -4,6 +4,8 @@ import { Show } from "@clerk/nextjs";
 export default function Home() {
   return (
     <div className="flex flex-1 flex-col bg-bg">
+      {/* Regla de marca: aqua → azul → naranja (Miami Dolphins) */}
+      <div className="h-1 bg-gradient-to-r from-brand-aqua via-brand-blue to-brand-orange" />
       <header className="flex items-center justify-between px-6 py-4 sm:px-10">
         <span className="text-lg font-bold tracking-tight">
           <span className="text-brand-blue">Cotiza</span>

@@ -205,3 +205,8 @@ Padding de página: 24px (mobile) / 32px (desktop). Gap de cards: 16–24px.
 - Logo final (este es provisorio).
 - Plantilla de documento (Word/PDF) que aplica branding del tenant —
   se detalla en Fase 3.
+- ~~Modo oscuro~~ → **implementado** (cookie `theme` + `ThemeToggle`; tokens
+  dark en `globals.css`, ver `docs/05-fase-5-mejoras.md`).
+- ~~Más énfasis paleta Miami Dolphins~~ → **implementado** (regla de gradiente
+  aqua→azul→naranja en headers, nav con estado activo aqua, acentos por métrica
+  en dashboard). Seguir extendiendo a gráficos futuros.

@@ -69,6 +69,12 @@ enum AuditAction {
   BUDGET_GENERATED
   PROFILE_UPDATED
   SUBSCRIPTION_CHANGED
+  INTEGRATION_CONNECTED
+  INTEGRATION_DISCONNECTED
+}
+
+enum IntegrationProvider {
+  GOOGLE_DRIVE
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -95,6 +101,7 @@ model Tenant {
   generatedBudgets  GeneratedBudget[]
   usageRecords      UsageRecord[]
   auditLogs         AuditLog[]
+  integrations      TenantIntegration[]
 
   @@index([clerkOrgId])
 }
@@ -147,6 +154,9 @@ model CompanyProfile {
   colorPrimary   String?  // hex
   colorSecondary String?  // hex
   companyData    Json?    // razón social, CUIT, dirección, contacto, etc.
+  // Firmantes de los documentos: [{id, nombre, cargo, firma:{dataUrl,w,h}}].
+  // La IA NUNCA genera firmas; estas se insertan al exportar Word/PDF.
+  signers        Json?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -297,6 +307,26 @@ model Subscription {
   updatedAt            DateTime           @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// INTEGRACIONES EXTERNAS (OAuth por tenant)
+// ──────────────────────────────────────────────────────────────────────────
+
+model TenantIntegration {
+  id           String              @id @default(uuid()) @db.Uuid
+  tenantId     String              @db.Uuid
+  provider     IntegrationProvider
+  // Refresh token OAuth del proveedor (Google Drive: scope drive.readonly).
+  refreshToken String
+  accountEmail String? // cuenta conectada, para mostrar en la UI
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider])
+  @@index([tenantId])
 }
 
 // ──────────────────────────────────────────────────────────────────────────
