@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { UsageOperation } from "@prisma/client";
 import type { TokenUsage } from "@/lib/ai/providers";
+import { logError } from "@/lib/logger";
 
 /**
  * Tracking de consumo de IA por tenant (analítica de costos + límites por plan).
@@ -29,6 +30,6 @@ export async function recordUsage(params: {
       },
     });
   } catch (err) {
-    console.error("No se pudo registrar UsageRecord:", err);
+    logError("ai.usage.recordUsage", err);
   }
 }

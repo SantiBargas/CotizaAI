@@ -148,7 +148,7 @@ export function ReviewForm({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <Link
             href="/historicos"
@@ -173,7 +173,7 @@ export function ReviewForm({
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {budget.hasSourceFile && (
             <a
               href={`/api/historicos/${budget.id}/archivo`}
@@ -182,7 +182,7 @@ export function ReviewForm({
             >
               <Button variant="secondary">
                 <ExternalLink className="size-4" />
-                Ver PDF
+                Ver archivo
               </Button>
             </a>
           )}
@@ -221,7 +221,7 @@ export function ReviewForm({
               />
             </Field>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Field label="Monto total">
               <Input
                 type="number"

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireTenantContext } from "@/lib/api";
-import { exchangeCode } from "@/lib/integrations/google-drive";
+import { encryptRefreshToken, exchangeCode } from "@/lib/integrations/google-drive";
 import { logAudit } from "@/lib/audit";
 
 /**
@@ -37,6 +37,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     const redirectUri = `${req.nextUrl.origin}/api/integrations/google/callback`;
     const { refreshToken, email } = await exchangeCode(code, redirectUri);
+    const encryptedRefreshToken = encryptRefreshToken(refreshToken);
 
     await prisma.tenantIntegration.upsert({
       where: {
@@ -45,10 +46,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       create: {
         tenantId: tenant.id,
         provider: "GOOGLE_DRIVE",
-        refreshToken,
+        refreshToken: encryptedRefreshToken,
         accountEmail: email,
       },
-      update: { refreshToken, accountEmail: email },
+      update: { refreshToken: encryptedRefreshToken, accountEmail: email },
     });
 
     await logAudit({

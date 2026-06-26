@@ -55,7 +55,7 @@ export function HistoricosList({
   async function handleUpload(): Promise<void> {
     const file = fileInputRef.current?.files?.[0];
     if (!file) {
-      toast("warning", "Elegí un archivo PDF primero.");
+      toast("warning", "Elegí un archivo primero.");
       return;
     }
     setUploading(true);
@@ -71,9 +71,9 @@ export function HistoricosList({
         error?: string;
       };
       if (!res.ok || !json.budget) {
-        throw new Error(json.error ?? "Error subiendo el PDF.");
+        throw new Error(json.error ?? "Error subiendo el archivo.");
       }
-      toast("success", "PDF procesado. Revisá los datos extraídos.");
+      toast("success", "Archivo procesado. Revisá los datos extraídos.");
       setUploadOpen(false);
       router.push(`/historicos/${json.budget.id}`);
     } catch (err) {
@@ -105,7 +105,7 @@ export function HistoricosList({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-text-heading">Históricos</h1>
           <p className="mt-1 text-sm text-text-muted">
@@ -113,7 +113,7 @@ export function HistoricosList({
             nuevos.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {drive.configured && (
             <DriveImport
               connected={drive.connected}
@@ -122,7 +122,7 @@ export function HistoricosList({
           )}
           <Button onClick={() => setUploadOpen(true)}>
             <FileUp className="size-4" />
-            Subir PDF
+            Subir histórico
           </Button>
         </div>
       </div>
@@ -131,11 +131,11 @@ export function HistoricosList({
         <EmptyState
           icon={<FileText className="size-10" />}
           title="Todavía no cargaste históricos"
-          description="Subí tus presupuestos en PDF: la IA extrae los datos, vos los revisás y quedan listos para alimentar al generador."
+          description="Subí tus presupuestos en PDF, Word o Excel: la IA extrae los datos, vos los revisás y quedan listos para alimentar al generador."
           action={
             <Button onClick={() => setUploadOpen(true)}>
               <FileUp className="size-4" />
-              Subir mi primer PDF
+              Subir mi primer histórico
             </Button>
           }
         />
@@ -199,18 +199,18 @@ export function HistoricosList({
       <Modal
         open={uploadOpen}
         onClose={() => !uploading && setUploadOpen(false)}
-        title="Subir presupuesto histórico (PDF)"
+        title="Subir presupuesto histórico"
       >
         <div className="flex flex-col gap-4">
           <p className="text-sm text-text-muted">
-            Subí un PDF de hasta 15 MB. La IA va a extraer título, cliente,
-            monto, fecha y el detalle del trabajo; después lo revisás antes de
-            indexarlo.
+            Subí un PDF, Word (.docx) o Excel (.xlsx) de hasta 15 MB. La IA va
+            a extraer título, cliente, monto, fecha y el detalle del trabajo;
+            después lo revisás antes de indexarlo.
           </p>
           <input
             ref={fileInputRef}
             type="file"
-            accept="application/pdf"
+            accept="application/pdf,.pdf,.docx,.xlsx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="block w-full text-sm text-text file:mr-3 file:rounded-[var(--radius-md)] file:border-0 file:bg-surface file:px-4 file:py-2 file:text-sm file:font-medium file:text-text hover:file:bg-border"
           />
           <div className="flex justify-end gap-2">

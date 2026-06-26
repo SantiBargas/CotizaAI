@@ -6,6 +6,7 @@ import { generateBudgetPayload } from "@/lib/ai/generation";
 import { checkGenerationLimit } from "@/lib/billing/limits";
 import { recordUsage } from "@/lib/ai/usage";
 import { logAudit } from "@/lib/audit";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export const maxDuration = 120; // RAG + LLM
 
@@ -32,6 +33,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (!user) {
       return badRequest(
         "Tu usuario todavía no está sincronizado. Probá de nuevo en unos segundos.",
+      );
+    }
+
+    const rateLimit = checkRateLimit(`generar:${tenant.id}`);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          error:
+            "Estás generando presupuestos muy rápido. Esperá un momento antes de volver a intentar.",
+        },
+        { status: 429 },
       );
     }
 

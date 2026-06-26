@@ -10,6 +10,7 @@ import {
   loadInflationIndices,
 } from "@/lib/inflation";
 import { formatMoney } from "@/lib/format";
+import { logError, logWarn } from "@/lib/logger";
 
 /**
  * Retrieval RAG scopeado por tenant. Mejoras sobre ITZA aplicadas desde el
@@ -150,7 +151,12 @@ export async function buildRagContext(params: {
   query: string;
   country: string;
   currency: string;
+  /** Tope de históricos a incluir en el prompt (default `TOP_BUDGETS`). Se
+   *  puede reducir para reintentar con menos contexto si un proveedor de IA
+   *  rechaza el request por exceder su límite de tokens. */
+  maxBudgets?: number;
 }): Promise<RagResult> {
+  const maxBudgets = params.maxBudgets ?? TOP_BUDGETS;
   let hits: ChunkHit[] = [];
   let mode: RagResult["mode"] = "none";
 
@@ -160,7 +166,7 @@ export async function buildRagContext(params: {
         hits = await vectorSearch(params.tenantId, params.query);
         mode = "vectorial";
       } catch (err) {
-        console.warn("Búsqueda vectorial falló; fallback léxico:", err);
+        logWarn("rag.retrieval.vectorSearch", err);
       }
     }
     if (hits.length === 0) {
@@ -169,7 +175,7 @@ export async function buildRagContext(params: {
     }
   } catch (err) {
     // DB caída: la generación sigue sin RAG.
-    console.error("RAG retrieval falló por completo:", err);
+    logError("rag.retrieval.buildRagContext", err);
     return { contextText: "", sourceIds: [], mode: "none" };
   }
 
@@ -187,7 +193,7 @@ export async function buildRagContext(params: {
   }
   const topBudgetIds = [...byBudget.entries()]
     .sort((a, b) => b[1].score - a[1].score)
-    .slice(0, TOP_BUDGETS)
+    .slice(0, maxBudgets)
     .map(([id]) => id);
 
   const [budgets, indices] = await Promise.all([

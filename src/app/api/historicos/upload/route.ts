@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { apiError, badRequest, requireTenantContext } from "@/lib/api";
 import { ingestPdfHistorical, EmptyPdfTextError } from "@/lib/pdf/ingest";
 import { checkHistoricalLimit } from "@/lib/billing/limits";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export const maxDuration = 120; // extracción + LLM pueden tardar
 
@@ -15,6 +16,17 @@ const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const { tenant, user } = await requireTenantContext();
+
+    const rateLimit = checkRateLimit(`historicos-upload:${tenant.id}`);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          error:
+            "Estás subiendo históricos muy rápido. Esperá un momento antes de volver a intentar.",
+        },
+        { status: 429 },
+      );
+    }
 
     const limit = await checkHistoricalLimit(tenant.id);
     if (!limit.allowed) {
@@ -31,11 +43,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (!(file instanceof File)) {
       return badRequest("Falta el archivo PDF (campo `file`).");
     }
-    if (file.type !== "application/pdf") {
-      return badRequest("Solo se aceptan archivos PDF.");
+    const ACCEPTED_TYPES = [
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ];
+    const ACCEPTED_EXTENSIONS = /\.(pdf|docx|xlsx)$/i;
+    if (
+      !ACCEPTED_TYPES.includes(file.type) &&
+      !ACCEPTED_EXTENSIONS.test(file.name)
+    ) {
+      return badRequest("Solo se aceptan archivos PDF, Word (.docx) o Excel (.xlsx).");
     }
     if (file.size > MAX_FILE_BYTES) {
-      return badRequest("El PDF supera el máximo de 15 MB.");
+      return badRequest("El archivo supera el máximo de 15 MB.");
     }
 
     const budget = await ingestPdfHistorical({

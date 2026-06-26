@@ -327,14 +327,23 @@ seguridad para que la franja de pie de página no se solape con el cuerpo en
 presupuestos largos. Si el branding por tenant en CotizaAI permite logo/footer
 custom de tamaño variable, este mismo problema va a aparecer apenas un cliente
 genere un presupuesto largo.
-**Estado:** Verificar en `src/lib/docx/budget-docx.ts` con un caso de prueba de
-cuerpo largo (40+ bloques) antes de asumir que está resuelto.
+**Estado:** ✅ **No es un gap.** Verificado generando un `.docx` con 48 bloques
+(12 secciones × título+párrafo largo+lista+tabla) — sin errores. A diferencia
+de ITZA, `budget-docx.ts` usa un `Footer` **nativo** de `docx` (texto que Word
+repagina solo en cada página), no una imagen flotante anclada al borde
+inferior de la página. Por diseño, CotizaAI nunca tuvo el problema que forzó a
+ITZA a construir un estimador de altura: no hay nada flotante con lo que el
+cuerpo pueda solaparse.
 
 ### K.2 Verificar soporte de múltiples firmantes
 **Por qué:** ITZA soporta hasta 3 firmas por fila con catálogo de profesionales
 reutilizable. Confirmar si `/perfil` en CotizaAI ya cubre múltiples firmantes
 guardados o asume un solo firmante por tenant.
-**Estado:** Verificar alcance actual.
+**Estado:** ✅ **No es un gap.** `signatureSection()` en `budget-docx.ts` ya
+soporta N firmantes (`branding.signers: Signer[]`) agrupados de a
+`MAX_FIRMAS_POR_FILA = 3` por fila, con tantas filas como haga falta —
+verificado con un caso de 4 firmantes (2 filas). Cada firmante tiene imagen de
+firma (o línea para rubricar si no cargó una), nombre y cargo.
 
 ---
 

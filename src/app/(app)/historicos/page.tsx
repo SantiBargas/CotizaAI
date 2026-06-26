@@ -1,6 +1,7 @@
 import { getCurrentTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { isDriveConfigured } from "@/lib/integrations/google-drive";
+import { HistoricosAuditPanel } from "@/features/historicos/historicos-audit-panel";
 import { HistoricosList } from "@/features/historicos/historicos-list";
 import type { HistoricalBudgetListItem } from "@/features/historicos/types";
 
@@ -88,6 +89,7 @@ export default async function HistoricosPage({
           {driveMessage.text}
         </p>
       )}
+      <HistoricosAuditPanel />
       <HistoricosList
         budgets={budgets}
         drive={{

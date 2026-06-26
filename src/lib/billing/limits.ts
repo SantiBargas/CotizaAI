@@ -54,3 +54,51 @@ export async function checkHistoricalLimit(
     limit: plan.limits.maxHistoricals,
   };
 }
+
+export interface TenantUsageSummary {
+  plan: SubscriptionPlan;
+  generationsUsed: number;
+  generationsLimit: number;
+  historicalsUsed: number;
+  historicalsLimit: number;
+  membersUsed: number;
+  membersLimit: number;
+}
+
+/**
+ * Resumen de consumo del tenant contra los límites de su plan: generaciones
+ * de IA del mes calendario actual, históricos activos (no archivados) y
+ * miembros de la organización. Usado tanto en la UI de consumo (`/configuracion`)
+ * como en el banner de alerta de proximidad a límite.
+ */
+export async function getTenantUsageSummary(
+  tenantId: string,
+): Promise<TenantUsageSummary> {
+  const plan = await getTenantPlan(tenantId);
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const [generationsUsed, historicalsUsed, membersUsed] = await Promise.all([
+    prisma.usageRecord.count({
+      where: {
+        tenantId,
+        operation: "GENERATION",
+        createdAt: { gte: monthStart },
+      },
+    }),
+    prisma.historicalBudget.count({
+      where: { tenantId, status: { not: "ARCHIVED" } },
+    }),
+    prisma.membership.count({ where: { tenantId } }),
+  ]);
+
+  return {
+    plan: plan.id,
+    generationsUsed,
+    generationsLimit: plan.limits.generationsPerMonth,
+    historicalsUsed,
+    historicalsLimit: plan.limits.maxHistoricals,
+    membersUsed,
+    membersLimit: plan.limits.maxMembers,
+  };
+}

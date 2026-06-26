@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getEnv } from "@/lib/env";
+import { logWarn } from "@/lib/logger";
+import { decrypt, encrypt, isEncryptionConfigured } from "@/lib/crypto";
 
 /**
  * Integración con Google Drive (OAuth 2.0, scope readonly) vía REST, sin SDK.
@@ -32,6 +34,29 @@ export class DriveNotConnectedError extends Error {
 export function isDriveConfigured(): boolean {
   const env = getEnv();
   return Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
+}
+
+export class EncryptionKeyMissingForDriveError extends Error {
+  constructor() {
+    super(
+      "Google Drive está configurado pero falta INTEGRATION_ENCRYPTION_KEY " +
+        "(32 bytes en base64; generarla con `openssl rand -base64 32`). No " +
+        "se puede guardar el refresh token sin cifrarlo.",
+    );
+    this.name = "EncryptionKeyMissingForDriveError";
+  }
+}
+
+/**
+ * Cifra el refresh token antes de persistirlo (I.1). Si Drive está
+ * configurado (hay client id/secret) pero falta la clave de cifrado, falla
+ * explícito en vez de guardar en texto plano como fallback silencioso.
+ */
+export function encryptRefreshToken(refreshToken: string): string {
+  if (!isEncryptionConfigured()) {
+    throw new EncryptionKeyMissingForDriveError();
+  }
+  return encrypt(refreshToken);
 }
 
 function requireCredentials(): { clientId: string; clientSecret: string } {
@@ -122,13 +147,15 @@ export async function getAccessToken(tenantId: string): Promise<string> {
   });
   if (!integration) throw new DriveNotConnectedError();
 
+  const refreshToken = decrypt(integration.refreshToken);
+
   const res = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: clientId,
       client_secret: clientSecret,
-      refresh_token: integration.refreshToken,
+      refresh_token: refreshToken,
       grant_type: "refresh_token",
     }).toString(),
   });
@@ -240,13 +267,14 @@ export async function disconnectDrive(tenantId: string): Promise<void> {
   if (!integration) return;
 
   try {
+    const refreshToken = decrypt(integration.refreshToken);
     await fetch(REVOKE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ token: integration.refreshToken }).toString(),
+      body: new URLSearchParams({ token: refreshToken }).toString(),
     });
   } catch (err) {
-    console.warn("No se pudo revocar el token de Google:", err);
+    logWarn("integrations.googleDrive.revokeToken", err);
   }
 
   await prisma.tenantIntegration.delete({

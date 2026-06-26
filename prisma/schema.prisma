@@ -66,11 +66,15 @@ enum AuditAction {
   MEMBER_INVITED
   HISTORICAL_UPLOADED
   HISTORICAL_INDEXED
+  HISTORICAL_AUDIT_REVIEWED
   BUDGET_GENERATED
   PROFILE_UPDATED
   SUBSCRIPTION_CHANGED
   INTEGRATION_CONNECTED
   INTEGRATION_DISCONNECTED
+  AI_CONFIG_UPDATED
+  DATA_EXPORTED
+  TENANT_DELETION_REQUESTED
 }
 
 enum IntegrationProvider {
@@ -103,6 +107,7 @@ model Tenant {
   auditLogs         AuditLog[]
   integrations      TenantIntegration[]
   budgetTemplates   BudgetTemplate[]
+  incompatibleFiles IncompatibleFile[]
 
   @@index([clerkOrgId])
 }
@@ -196,6 +201,7 @@ model HistoricalBudget {
   structuredContent  Json? // cajitas semánticas extraídas por IA
   status             HistoricalBudgetStatus @default(PENDING_REVIEW)
   createdByAI        Boolean                @default(false)
+  auditReviewed      Boolean                @default(false) // marcado "revisado/ignorar" en la auditoría de calidad
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
 
@@ -223,6 +229,23 @@ model BudgetChunk {
 
   @@index([tenantId])
   @@index([budgetId])
+}
+
+// Registro de archivos que no se pudieron procesar (ej. PDF escaneado sin
+// texto extraíble) para no reintentarlos en cada import masivo (C.5).
+// `sourceKey` es el identificador de origen (ej. driveFileId o hash del
+// nombre de archivo para uploads manuales).
+model IncompatibleFile {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid
+  sourceKey String // ej. driveFileId o hash del nombre de archivo
+  reason    String
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, sourceKey])
+  @@index([tenantId])
 }
 
 // ──────────────────────────────────────────────────────────────────────────

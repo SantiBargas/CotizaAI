@@ -39,6 +39,10 @@ const serverEnvSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
 
+  // Cifrado at-rest de secretos (ej. refreshToken de integraciones). 32 bytes
+  // en base64; generar con `openssl rand -base64 32`. Ver src/lib/crypto.ts.
+  INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
+
   // Notificaciones por email (Resend). Opcional: sin esto, las solicitudes de
   // demo solo quedan en la DB.
   RESEND_API_KEY: z.string().optional(),

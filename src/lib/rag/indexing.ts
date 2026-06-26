@@ -8,6 +8,7 @@ import {
 import { recordUsage } from "@/lib/ai/usage";
 import { buildBudgetChunks } from "@/lib/rag/chunking";
 import { structuredContentSchema } from "@/types/budget";
+import { logWarn } from "@/lib/logger";
 
 /**
  * Indexado de un histórico para RAG: regenera sus BudgetChunk y calcula los
@@ -80,7 +81,7 @@ export async function reindexHistoricalBudget(
         embeddedCount += 1;
       } catch (err) {
         // Chunk sin vector → lo cubre el fallback léxico.
-        console.warn(`Embedding falló para chunk ${chunk.id}:`, err);
+        logWarn("rag.indexing.embedChunk", err, { chunkId: chunk.id });
       }
     }
     if (embeddedCount > 0) {

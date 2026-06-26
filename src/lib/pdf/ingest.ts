@@ -1,14 +1,18 @@
 import type { HistoricalBudget, Prisma, Tenant, User } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { uploadTenantFile, isStorageConfigured } from "@/lib/storage";
-import { extractPdfText, extractSemanticContent } from "@/lib/pdf/extract";
+import { extractFileText, extractSemanticContent } from "@/lib/pdf/extract";
 import { availableProviders } from "@/lib/ai/providers";
 import { recordUsage } from "@/lib/ai/usage";
 import { logAudit } from "@/lib/audit";
+import { logWarn } from "@/lib/logger";
 
 export class EmptyPdfTextError extends Error {
   constructor() {
-    super("No se pudo extraer texto del PDF (¿es un escaneo sin OCR?).");
+    super(
+      "No se pudo extraer texto de este archivo (¿es un PDF escaneado sin texto?). " +
+        "Probá exportarlo de nuevo desde el original, o completá los datos a mano.",
+    );
     this.name = "EmptyPdfTextError";
   }
 }
@@ -27,6 +31,12 @@ export async function ingestPdfHistorical(params: {
 }): Promise<HistoricalBudget> {
   const { tenant, user, fileName, buffer, source } = params;
 
+  const contentType = fileName.toLowerCase().endsWith(".docx")
+    ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    : fileName.toLowerCase().endsWith(".xlsx")
+      ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      : "application/pdf";
+
   // 1. Storage (opcional: sin configurar seguimos — el texto alcanza para RAG).
   let sourceFileUrl: string | null = null;
   if (isStorageConfigured()) {
@@ -34,17 +44,17 @@ export async function ingestPdfHistorical(params: {
       tenant.id,
       fileName,
       buffer,
-      "application/pdf",
+      contentType,
     );
   }
 
-  // 2. Extracción de texto (remota → fallback local unpdf).
-  const { text: rawText, method } = await extractPdfText(buffer, fileName);
+  // 2. Extracción de texto: PDF (remoto → fallback unpdf), .docx o .xlsx.
+  const { text: rawText, method } = await extractFileText(buffer, fileName);
   if (!rawText.trim()) throw new EmptyPdfTextError();
 
   // 3. Extracción semántica con LLM rápido (best-effort).
   let structuredContent: Prisma.InputJsonValue | undefined;
-  let title = fileName.replace(/\.pdf$/i, "");
+  let title = fileName.replace(/\.(pdf|docx|xlsx)$/i, "");
   let client: string | null = null;
   let location: string | null = null;
   let amount: number | null = null;
@@ -75,7 +85,7 @@ export async function ingestPdfHistorical(params: {
       });
     } catch (err) {
       // Sin extracción semántica el histórico queda con texto crudo.
-      console.warn("Extracción semántica falló:", err);
+      logWarn("pdf.ingest.semanticExtraction", err);
     }
   }
 

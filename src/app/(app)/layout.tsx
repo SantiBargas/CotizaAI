@@ -3,6 +3,42 @@ import { cookies } from "next/headers";
 import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
 import { ThemeToggle, ToastProvider } from "@/components/ui";
 import { AppNav } from "@/features/nav/app-nav";
+import { UsageLimitBanner } from "@/features/billing/usage-limit-banner";
+import { getCurrentTenant } from "@/lib/tenant";
+import { getTenantUsageSummary } from "@/lib/billing/limits";
+import { PLANS } from "@/lib/billing/plans";
+
+const WARNING_THRESHOLD = 0.8;
+
+function usageWarningMessages(
+  summary: Awaited<ReturnType<typeof getTenantUsageSummary>>,
+): string[] {
+  const planLabel = PLANS[summary.plan].label;
+  const metrics: Array<{ label: string; used: number; limit: number }> = [
+    {
+      label: "generaciones mensuales",
+      used: summary.generationsUsed,
+      limit: summary.generationsLimit,
+    },
+    {
+      label: "históricos cargados",
+      used: summary.historicalsUsed,
+      limit: summary.historicalsLimit,
+    },
+    {
+      label: "miembros de la organización",
+      used: summary.membersUsed,
+      limit: summary.membersLimit,
+    },
+  ];
+
+  return metrics
+    .filter((m) => m.limit > 0 && m.used / m.limit >= WARNING_THRESHOLD)
+    .map((m) => {
+      const pct = Math.round((m.used / m.limit) * 100);
+      return `Estás usando el ${pct}% de tus ${m.label} del plan ${planLabel}. Considerá upgradear.`;
+    });
+}
 
 export default async function AppLayout({
   children,
@@ -10,6 +46,11 @@ export default async function AppLayout({
   const cookieStore = await cookies();
   const theme =
     cookieStore.get("theme")?.value === "dark" ? "dark" : "light";
+
+  const tenant = await getCurrentTenant();
+  const usageMessages = tenant
+    ? usageWarningMessages(await getTenantUsageSummary(tenant.id))
+    : [];
 
   return (
     <ToastProvider>
@@ -59,6 +100,7 @@ export default async function AppLayout({
             </div>
           </div>
         </header>
+        <UsageLimitBanner messages={usageMessages} />
         <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-8">
           {children}
         </main>

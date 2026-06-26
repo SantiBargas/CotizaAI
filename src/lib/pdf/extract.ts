@@ -1,4 +1,6 @@
 import { extractText, getDocumentProxy } from "unpdf";
+import mammoth from "mammoth";
+import ExcelJS from "exceljs";
 import { getEnv } from "@/lib/env";
 import {
   callWithTool,
@@ -11,6 +13,7 @@ import {
   type ExtractedMetadata,
   type StructuredContent,
 } from "@/types/budget";
+import { logWarn } from "@/lib/logger";
 
 /**
  * Pipeline de extracción de PDF (Fase 1), replicando el diseño dual de ITZA:
@@ -28,7 +31,14 @@ import {
 
 export interface PdfTextResult {
   text: string;
-  method: "service" | "unpdf";
+  method: "service" | "unpdf" | "docx" | "xlsx";
+}
+
+export class UnsupportedFileTypeError extends Error {
+  constructor(fileName: string) {
+    super(`Formato de archivo no soportado: ${fileName}`);
+    this.name = "UnsupportedFileTypeError";
+  }
 }
 
 async function extractViaService(
@@ -74,11 +84,54 @@ export async function extractPdfText(
       );
       return { text, method: "service" };
     } catch (err) {
-      console.warn("Extracción remota falló; fallback a unpdf:", err);
+      logWarn("pdf.extract.remoteService", err);
     }
   }
   const text = await extractViaUnpdf(buffer);
   return { text, method: "unpdf" };
+}
+
+async function extractViaDocx(buffer: ArrayBuffer): Promise<string> {
+  const { value } = await mammoth.extractRawText({ buffer: Buffer.from(buffer) });
+  return value;
+}
+
+async function extractViaXlsx(buffer: ArrayBuffer): Promise<string> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer as never);
+  const parts: string[] = [];
+  workbook.eachSheet((sheet) => {
+    parts.push(`--- Hoja: ${sheet.name} ---`);
+    sheet.eachRow((row) => {
+      const cells = (row.values as Array<string | number | undefined>)
+        .slice(1) // ExcelJS usa índice 1-based; el 0 queda undefined
+        .map((v) => (v === undefined || v === null ? "" : String(v)));
+      parts.push(cells.join(" | "));
+    });
+  });
+  return parts.join("\n");
+}
+
+/**
+ * Extrae texto de un histórico sin importar el formato (PDF/.docx/.xlsx):
+ * decide la vía por extensión del nombre de archivo. PDF usa el pipeline dual
+ * existente (microservicio → unpdf); Word/Excel se leen localmente.
+ */
+export async function extractFileText(
+  buffer: ArrayBuffer,
+  fileName: string,
+): Promise<PdfTextResult> {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".docx")) {
+    return { text: await extractViaDocx(buffer), method: "docx" };
+  }
+  if (lower.endsWith(".xlsx")) {
+    return { text: await extractViaXlsx(buffer), method: "xlsx" };
+  }
+  if (lower.endsWith(".pdf")) {
+    return extractPdfText(buffer, fileName);
+  }
+  throw new UnsupportedFileTypeError(fileName);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -152,6 +205,8 @@ const EXTRACTION_TOOL: ToolDefinition = {
 };
 
 const MAX_EXTRACTION_INPUT_CHARS = 30_000;
+const CHUNK_TARGET_CHARS = 25_000;
+const MAX_CHUNKS = 4;
 
 interface RawExtractionArgs {
   titulo?: unknown;
@@ -187,11 +242,59 @@ function asStringArray(v: unknown): string[] {
   return v.filter((x): x is string => typeof x === "string" && x.trim() !== "");
 }
 
-/** Extrae cajitas semánticas + metadata del texto crudo. */
-export async function extractSemanticContent(
-  rawText: string,
-): Promise<SemanticExtraction> {
-  const input = rawText.slice(0, MAX_EXTRACTION_INPUT_CHARS);
+/** Divide `rawText` en hasta `MAX_CHUNKS` trozos de ~`CHUNK_TARGET_CHARS`
+ *  caracteres, cortando en el salto de párrafo (`\n\n`) más cercano al límite
+ *  para no partir una oración a la mitad cuando es posible. */
+function splitIntoChunks(rawText: string): string[] {
+  if (rawText.length <= MAX_EXTRACTION_INPUT_CHARS) return [rawText];
+
+  const chunks: string[] = [];
+  let rest = rawText;
+
+  while (rest.length > 0 && chunks.length < MAX_CHUNKS) {
+    if (rest.length <= CHUNK_TARGET_CHARS) {
+      chunks.push(rest);
+      break;
+    }
+
+    // Buscamos el último \n\n dentro de una ventana razonable antes del
+    // límite para cortar en un borde de párrafo, no a mitad de oración.
+    const window = rest.slice(0, CHUNK_TARGET_CHARS);
+    const lastBreak = window.lastIndexOf("\n\n");
+    const cutoff = lastBreak > CHUNK_TARGET_CHARS * 0.5 ? lastBreak : CHUNK_TARGET_CHARS;
+
+    chunks.push(rest.slice(0, cutoff));
+    rest = rest.slice(cutoff).trimStart();
+  }
+
+  return chunks;
+}
+
+function sumUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  return {
+    promptTokens: a.promptTokens + b.promptTokens,
+    completionTokens: a.completionTokens + b.completionTokens,
+    totalTokens: a.totalTokens + b.totalTokens,
+  };
+}
+
+/** Mergea arrays de strings sin duplicar valores exactos, preservando orden. */
+function mergeUnique(lists: string[][]): string[] {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const list of lists) {
+    for (const item of list) {
+      if (!seen.has(item)) {
+        seen.add(item);
+        merged.push(item);
+      }
+    }
+  }
+  return merged;
+}
+
+/** Corre la extracción semántica sobre un único chunk de texto (sin troceo). */
+async function extractOneChunk(input: string): Promise<SemanticExtraction> {
   const result = await callWithTool(
     [
       {
@@ -237,4 +340,55 @@ export async function extractSemanticContent(
     provider: result.provider,
     model: result.model,
   };
+}
+
+/** Extrae cajitas semánticas + metadata del texto crudo. Si el texto supera
+ *  `MAX_EXTRACTION_INPUT_CHARS`, lo trocea en hasta `MAX_CHUNKS` chunks
+ *  (en vez de truncar con `.slice()` y perder el resto del documento) y
+ *  mergea los resultados de cada chunk. */
+export async function extractSemanticContent(
+  rawText: string,
+): Promise<SemanticExtraction> {
+  const chunks = splitIntoChunks(rawText);
+
+  const results: SemanticExtraction[] = [];
+  for (const chunk of chunks) {
+    results.push(await extractOneChunk(chunk));
+  }
+
+  if (results.length === 1) return results[0];
+
+  const merged = results.reduce((acc, cur) => ({
+    structured: structuredContentSchema.parse({
+      resumen: [acc.structured.resumen, cur.structured.resumen]
+        .filter((s): s is string => Boolean(s))
+        .join(". "),
+      condicionesComerciales: mergeUnique([
+        acc.structured.condicionesComerciales,
+        cur.structured.condicionesComerciales,
+      ]),
+      entregables: mergeUnique([acc.structured.entregables, cur.structured.entregables]),
+      productosEquipos: mergeUnique([
+        acc.structured.productosEquipos,
+        cur.structured.productosEquipos,
+      ]),
+      tareasDetalladas: mergeUnique([
+        acc.structured.tareasDetalladas,
+        cur.structured.tareasDetalladas,
+      ]),
+    }),
+    metadata: extractedMetadataSchema.parse({
+      titulo: acc.metadata.titulo ?? cur.metadata.titulo,
+      cliente: acc.metadata.cliente ?? cur.metadata.cliente,
+      ubicacion: acc.metadata.ubicacion ?? cur.metadata.ubicacion,
+      montoTotal: acc.metadata.montoTotal ?? cur.metadata.montoTotal,
+      moneda: acc.metadata.moneda ?? cur.metadata.moneda,
+      fechaDocumento: acc.metadata.fechaDocumento ?? cur.metadata.fechaDocumento,
+    }),
+    usage: sumUsage(acc.usage, cur.usage),
+    provider: acc.provider,
+    model: acc.model,
+  }));
+
+  return merged;
 }

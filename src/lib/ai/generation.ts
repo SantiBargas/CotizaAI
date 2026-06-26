@@ -1,9 +1,13 @@
 import type { CompanyProfile, Tenant } from "@prisma/client";
 import {
+  availableProvidersForTenant,
   callWithTool,
+  isProviderId,
+  type ProviderId,
   type TokenUsage,
   type ToolDefinition,
 } from "@/lib/ai/providers";
+import { prisma } from "@/lib/prisma";
 import { buildRagContext, type RagResult } from "@/lib/rag/retrieval";
 import {
   generatedBudgetPayloadSchema,
@@ -117,6 +121,60 @@ interface RawBlock {
   rows?: unknown;
 }
 
+/**
+ * Heredado de ITZA: el LLM a veces cuela sintaxis markdown (`**negrita**`,
+ * `__subrayado__`, backticks, `#`/`##` de heading) dentro de campos que se
+ * renderizan como texto plano en el Word/PDF final. Se remueve solo la
+ * sintaxis, nunca el contenido.
+ */
+function limpiarMarkdown(texto: string): string {
+  return texto
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*\*(.+?)\*\*\*/g, "$1")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/(?<![*\w])\*(?!\s)(.+?)(?<!\s)\*(?!\w)/g, "$1")
+    .replace(/(?<![_\w])_(?!\s)(.+?)(?<!\s)_(?!\w)/g, "$1")
+    .replace(/`{1,3}([^`]+?)`{1,3}/g, "$1")
+    .trim();
+}
+
+function limpiarMarkdownBloque(b: BudgetBlock): BudgetBlock {
+  switch (b.type) {
+    case "titulo":
+    case "subtitulo":
+    case "parrafo":
+      return { ...b, texto: limpiarMarkdown(b.texto) };
+    case "lista":
+      return { ...b, items: b.items.map(limpiarMarkdown) };
+    case "tabla":
+      return {
+        ...b,
+        encabezados: b.encabezados.map(limpiarMarkdown),
+        filas: b.filas.map((fila) => fila.map(limpiarMarkdown)),
+      };
+  }
+}
+
+/** Copia local mínima de `normalize` de `src/lib/rag/retrieval.ts` (evita ciclo). */
+function normalizeTexto(texto: string): string {
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Heredado de ITZA: el LLM a veces repite el título del presupuesto como un
+ * bloque titulo/subtitulo dentro del cuerpo, duplicándolo en el documento.
+ */
+function esEcoCabecera(b: BudgetBlock, tituloNormalizado: string): boolean {
+  if (b.type !== "titulo" && b.type !== "subtitulo") return false;
+  return normalizeTexto(b.texto) === tituloNormalizado;
+}
+
 function normalizeBlock(raw: RawBlock): BudgetBlock | null {
   const type = str(raw.type) ?? str(raw.tipo);
   const texto = str(raw.texto) ?? str(raw.text) ?? str(raw.content) ?? str(raw.body);
@@ -166,10 +224,19 @@ function esBloqueFirmaIa(b: BudgetBlock): boolean {
   }
   if (b.type === "parrafo") {
     const t = b.texto.trim();
-    if (/^_{4,}\s*$/m.test(t)) return true; // línea para rubricar
-    if (/^firma\b/i.test(t) && /matr[ií]cula/i.test(t)) return true;
-    if (/matr[ií]cula\s*:?\s*(n[°º.]?\s*)?(x{2,}|_{2,})/i.test(t)) return true;
+    if (/_{4,}/.test(t)) return true; // línea para rubricar (en cualquier parte del párrafo)
+    if (/^firma\b/i.test(t)) return true;
     if (/\bfirma y aclaraci[oó]n\b/i.test(t)) return true;
+    // "Matrícula: XXXX", "Mat. 24882", "Mat: 1-1809-5", con/sin punto y dos puntos
+    if (/\bmatr[ií]cula\b/i.test(t)) return true;
+    if (/\bmat\.?\s*:?\s*\d/i.test(t)) return true;
+    // nombre + título profesional + matrícula en el mismo párrafo
+    if (
+      /\b(ingenier[oa]|arquitect[oa]|t[eé]cnic[oa]|contador[a]?|abogad[oa])\b/i.test(t) &&
+      /\b(mat\.?|matr[ií]cula)\b/i.test(t)
+    ) {
+      return true;
+    }
   }
   return false;
 }
@@ -179,15 +246,19 @@ export function normalizeGenerationPayload(
   fallbackCurrency: string,
 ): GeneratedBudgetPayload {
   const raw = (args ?? {}) as RawGenerationArgs;
+  const titulo = str(raw.titulo) ?? "Presupuesto";
+  const tituloNormalizado = normalizeTexto(titulo);
   const cuerpoRaw = Array.isArray(raw.cuerpo) ? (raw.cuerpo as RawBlock[]) : [];
   const cuerpo = cuerpoRaw
     .map(normalizeBlock)
     .filter((b): b is BudgetBlock => b !== null)
-    .filter((b) => !esBloqueFirmaIa(b));
+    .map(limpiarMarkdownBloque)
+    .filter((b) => !esBloqueFirmaIa(b))
+    .filter((b) => !esEcoCabecera(b, tituloNormalizado));
 
   const validez = num(raw.validezDias);
   return generatedBudgetPayloadSchema.parse({
-    titulo: str(raw.titulo) ?? "Presupuesto",
+    titulo,
     cotizacionTotal: num(raw.cotizacionTotal),
     moneda: str(raw.moneda)?.toUpperCase() ?? fallbackCurrency,
     formaPago: str(raw.formaPago),
@@ -254,40 +325,77 @@ export interface GenerationOutcome {
   model: string;
 }
 
-/** Orquesta RAG + tool-calling y devuelve el presupuesto normalizado. */
+/** Errores típicos de "contexto/request demasiado grande" de proveedores de
+ *  IA (free tier de Groq/Cerebras/GitHub Models, límites de tokens, etc.). */
+const CONTEXT_TOO_LARGE_PATTERN = /too large|context length|token|payload too|413/i;
+
+function isContextTooLargeError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return CONTEXT_TOO_LARGE_PATTERN.test(message);
+}
+
+/** Orquesta RAG + tool-calling y devuelve el presupuesto normalizado. Si el
+ *  proveedor rechaza el request por exceder su límite de tokens, reintenta
+ *  UNA vez con menos históricos RAG en el contexto antes de propagar el error. */
 export async function generateBudgetPayload(params: {
   tenant: Tenant;
   profile: CompanyProfile | null;
   requestPrompt: string;
 }): Promise<GenerationOutcome> {
-  const rag = await buildRagContext({
-    tenantId: params.tenant.id,
-    query: params.requestPrompt,
-    country: params.tenant.country,
-    currency: params.tenant.defaultCurrency,
-  });
+  const [allowedProviders, aiConfig] = await Promise.all([
+    availableProvidersForTenant(params.tenant.id),
+    prisma.tenantAiConfig.findUnique({
+      where: { tenantId: params.tenant.id },
+      select: { defaultGeneration: true },
+    }),
+  ]);
+  const preferred = aiConfig?.defaultGeneration;
+  const provider: ProviderId | undefined =
+    preferred && isProviderId(preferred) ? preferred : undefined;
 
-  const result = await callWithTool(
-    [
-      {
-        role: "system",
-        content: buildSystemPrompt(params.tenant, params.profile, rag.contextText),
-      },
-      { role: "user", content: params.requestPrompt },
-    ],
-    GENERATION_TOOL,
-  );
+  async function attempt(maxBudgets?: number): Promise<GenerationOutcome> {
+    const rag = await buildRagContext({
+      tenantId: params.tenant.id,
+      query: params.requestPrompt,
+      country: params.tenant.country,
+      currency: params.tenant.defaultCurrency,
+      maxBudgets,
+    });
 
-  const payload = normalizeGenerationPayload(
-    result.args,
-    params.tenant.defaultCurrency,
-  );
+    const result = await callWithTool(
+      [
+        {
+          role: "system",
+          content: buildSystemPrompt(params.tenant, params.profile, rag.contextText),
+        },
+        { role: "user", content: params.requestPrompt },
+      ],
+      GENERATION_TOOL,
+      { allowedProviders, provider },
+    );
 
-  return {
-    payload,
-    rag,
-    usage: result.usage,
-    provider: result.provider,
-    model: result.model,
-  };
+    const payload = normalizeGenerationPayload(
+      result.args,
+      params.tenant.defaultCurrency,
+    );
+
+    return {
+      payload,
+      rag,
+      usage: result.usage,
+      provider: result.provider,
+      model: result.model,
+    };
+  }
+
+  try {
+    return await attempt();
+  } catch (err) {
+    if (!isContextTooLargeError(err)) throw err;
+    console.warn(
+      "generateBudgetPayload: contexto demasiado grande para el proveedor, reintentando con 1 histórico RAG.",
+      err,
+    );
+    return await attempt(1);
+  }
 }

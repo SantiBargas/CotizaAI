@@ -12,6 +12,8 @@
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
     "db:keep-alive": "node scripts/keep-supabase-alive.mjs",
+    "test:presupuesto": "tsx scripts/test-presupuesto.ts",
+    "embeddings:backfill": "tsx scripts/backfill-embeddings.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
@@ -20,6 +22,7 @@
     "@prisma/client": "^7.8.0",
     "@react-pdf/renderer": "^4.5.1",
     "docx": "^9.7.1",
+    "exceljs": "^4.4.0",
     "lucide-react": "^1.17.0",
     "mammoth": "^1.12.0",
     "next": "16.2.7",
@@ -40,6 +43,7 @@
     "eslint-config-next": "16.2.7",
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
+    "tsx": "4.22.4",
     "typescript": "^5"
   }
 }

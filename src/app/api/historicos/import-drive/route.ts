@@ -9,6 +9,7 @@ import {
 } from "@/lib/integrations/google-drive";
 import { ingestPdfHistorical, EmptyPdfTextError } from "@/lib/pdf/ingest";
 import { checkHistoricalLimit } from "@/lib/billing/limits";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export const maxDuration = 120; // descarga + extracción + LLM pueden tardar
 
@@ -26,6 +27,17 @@ const bodySchema = z.object({
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const { tenant, user } = await requireTenantContext();
+
+    const rateLimit = checkRateLimit(`historicos-upload:${tenant.id}`);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          error:
+            "Estás importando históricos muy rápido. Esperá un momento antes de volver a intentar.",
+        },
+        { status: 429 },
+      );
+    }
 
     const limit = await checkHistoricalLimit(tenant.id);
     if (!limit.allowed) {

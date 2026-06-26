@@ -1,18 +1,21 @@
+import { auth } from "@clerk/nextjs/server";
 import { getCurrentTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
-import {
-  getTenantPlan,
-  checkGenerationLimit,
-  checkHistoricalLimit,
-} from "@/lib/billing/limits";
+import { getTenantPlan, getTenantUsageSummary } from "@/lib/billing/limits";
 import { PLANS } from "@/lib/billing/plans";
-import { availableProviders, PROVIDER_CATALOG } from "@/lib/ai/providers";
+import {
+  checkAllProvidersHealth,
+  isProviderId,
+  PROVIDER_CATALOG,
+  type ProviderId,
+} from "@/lib/ai/providers";
 import { isEmbeddingConfigured } from "@/lib/ai/embeddings";
 import { isStorageConfigured } from "@/lib/storage";
 import { isDriveConfigured } from "@/lib/integrations/google-drive";
 import { Badge, Card, CardTitle } from "@/components/ui";
 import { InflacionSync } from "@/features/configuracion/inflacion-sync";
 import { UpgradePlanButton } from "@/features/configuracion/upgrade-plan";
+import { AiProvidersPanel } from "@/features/configuracion/ai-providers-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -26,29 +29,58 @@ export default async function ConfiguracionPage(): Promise<React.ReactElement> {
     );
   }
 
-  const [plan, genLimit, histLimit, members, latestIndex, driveIntegration] =
-    await Promise.all([
-      getTenantPlan(tenant.id),
-      checkGenerationLimit(tenant.id),
-      checkHistoricalLimit(tenant.id),
-      prisma.membership.findMany({
-        where: { tenantId: tenant.id },
-        include: { user: true },
-        orderBy: { createdAt: "asc" },
-      }),
-      prisma.inflationIndex.findFirst({
-        where: { country: tenant.country, currency: tenant.defaultCurrency },
-        orderBy: [{ year: "desc" }, { month: "desc" }],
-      }),
-      prisma.tenantIntegration.findUnique({
-        where: {
-          tenantId_provider: { tenantId: tenant.id, provider: "GOOGLE_DRIVE" },
-        },
-        select: { accountEmail: true },
-      }),
-    ]);
+  const { userId: clerkUserId } = await auth();
 
-  const providers = availableProviders();
+  const [
+    plan,
+    usageSummary,
+    members,
+    latestIndex,
+    driveIntegration,
+    aiConfig,
+    localUser,
+  ] = await Promise.all([
+    getTenantPlan(tenant.id),
+    getTenantUsageSummary(tenant.id),
+    prisma.membership.findMany({
+      where: { tenantId: tenant.id },
+      include: { user: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.inflationIndex.findFirst({
+      where: { country: tenant.country, currency: tenant.defaultCurrency },
+      orderBy: [{ year: "desc" }, { month: "desc" }],
+    }),
+    prisma.tenantIntegration.findUnique({
+      where: {
+        tenantId_provider: { tenantId: tenant.id, provider: "GOOGLE_DRIVE" },
+      },
+      select: { accountEmail: true },
+    }),
+    prisma.tenantAiConfig.findUnique({ where: { tenantId: tenant.id } }),
+    clerkUserId
+      ? prisma.user.findUnique({ where: { clerkUserId } })
+      : Promise.resolve(null),
+  ]);
+
+  const currentMembership = localUser
+    ? members.find((m) => m.userId === localUser.id)
+    : undefined;
+  const canEditAiConfig =
+    currentMembership?.role === "OWNER" || currentMembership?.role === "ADMIN";
+
+  const health = checkAllProvidersHealth();
+  const enabledProviders = (aiConfig?.enabledProviders ?? []).filter(
+    isProviderId,
+  );
+  const defaultChat: ProviderId | null =
+    aiConfig?.defaultChat && isProviderId(aiConfig.defaultChat)
+      ? aiConfig.defaultChat
+      : null;
+  const defaultGeneration: ProviderId | null =
+    aiConfig?.defaultGeneration && isProviderId(aiConfig.defaultGeneration)
+      ? aiConfig.defaultGeneration
+      : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -67,15 +99,23 @@ export default async function ConfiguracionPage(): Promise<React.ReactElement> {
           </div>
           <p className="text-sm text-text-muted">{plan.description}</p>
           <div className="flex flex-col gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+              Tu consumo
+            </p>
             <UsageBar
               label="Generaciones este mes"
-              used={genLimit.used}
-              limit={genLimit.limit}
+              used={usageSummary.generationsUsed}
+              limit={usageSummary.generationsLimit}
             />
             <UsageBar
               label="Históricos cargados"
-              used={histLimit.used}
-              limit={histLimit.limit}
+              used={usageSummary.historicalsUsed}
+              limit={usageSummary.historicalsLimit}
+            />
+            <UsageBar
+              label="Miembros de la organización"
+              used={usageSummary.membersUsed}
+              limit={usageSummary.membersLimit}
             />
           </div>
           <div className="mt-2 grid grid-cols-3 gap-3 border-t border-border pt-4">
@@ -150,29 +190,20 @@ export default async function ConfiguracionPage(): Promise<React.ReactElement> {
           </p>
         </Card>
 
-        <Card className="flex flex-col gap-4">
+        <Card className="flex flex-col gap-4 lg:col-span-2">
           <CardTitle>Proveedores de IA</CardTitle>
-          <ul className="flex flex-col gap-2">
-            {Object.values(PROVIDER_CATALOG).map((p) => {
-              const enabled = providers.includes(p.id);
-              return (
-                <li
-                  key={p.id}
-                  className="flex items-center justify-between rounded-[var(--radius-md)] border border-border px-3 py-2"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-text">{p.label}</p>
-                    <p className="text-xs text-text-muted">
-                      {p.defaultModel}
-                    </p>
-                  </div>
-                  <Badge variant={enabled ? "success" : "neutral"}>
-                    {enabled ? "Configurado" : "Sin API key"}
-                  </Badge>
-                </li>
-              );
-            })}
-          </ul>
+          <AiProvidersPanel
+            catalog={Object.values(PROVIDER_CATALOG).map((p) => ({
+              id: p.id,
+              label: p.label,
+              defaultModel: p.defaultModel,
+            }))}
+            health={health}
+            initialEnabled={enabledProviders}
+            initialDefaultChat={defaultChat}
+            initialDefaultGeneration={defaultGeneration}
+            canEdit={canEditAiConfig}
+          />
           <div className="flex flex-wrap gap-2 border-t border-border pt-3">
             <Badge variant={isEmbeddingConfigured() ? "success" : "warning"}>
               Embeddings (RAG vectorial):{" "}
