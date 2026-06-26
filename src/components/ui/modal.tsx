@@ -42,11 +42,13 @@ export function Modal({
     >
       <div
         className={cn(
-          "w-full max-w-lg rounded-[var(--radius-lg)] border border-border bg-surface-elevated p-6 shadow-[var(--shadow-lg)]",
+          "w-full max-w-lg overflow-hidden rounded-[var(--radius-lg)] border border-border bg-surface-elevated shadow-[var(--shadow-lg)]",
           className,
         )}
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="h-1 bg-gradient-to-r from-brand-aqua via-brand-blue to-brand-orange" />
+        <div className="p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-text-heading">{title}</h2>
           <button
@@ -58,6 +60,7 @@ export function Modal({
           </button>
         </div>
         {children}
+        </div>
       </div>
     </div>
   );

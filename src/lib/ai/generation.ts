@@ -154,6 +154,26 @@ interface RawGenerationArgs {
   cuerpo?: unknown;
 }
 
+/**
+ * Filtro defensivo heredado de ITZA: aunque el prompt lo prohíbe, a veces el
+ * LLM cuela bloques que imitan una firma (sección "FIRMA", matrículas
+ * inventadas, líneas para rubricar). Las firmas reales se cargan en /perfil y
+ * se insertan al exportar — estos bloques se eliminan.
+ */
+function esBloqueFirmaIa(b: BudgetBlock): boolean {
+  if (b.type === "titulo" || b.type === "subtitulo") {
+    return /^firmas?(\s+y\s+aclaraci[oó]n(es)?)?$/i.test(b.texto.trim());
+  }
+  if (b.type === "parrafo") {
+    const t = b.texto.trim();
+    if (/^_{4,}\s*$/m.test(t)) return true; // línea para rubricar
+    if (/^firma\b/i.test(t) && /matr[ií]cula/i.test(t)) return true;
+    if (/matr[ií]cula\s*:?\s*(n[°º.]?\s*)?(x{2,}|_{2,})/i.test(t)) return true;
+    if (/\bfirma y aclaraci[oó]n\b/i.test(t)) return true;
+  }
+  return false;
+}
+
 export function normalizeGenerationPayload(
   args: unknown,
   fallbackCurrency: string,
@@ -162,7 +182,8 @@ export function normalizeGenerationPayload(
   const cuerpoRaw = Array.isArray(raw.cuerpo) ? (raw.cuerpo as RawBlock[]) : [];
   const cuerpo = cuerpoRaw
     .map(normalizeBlock)
-    .filter((b): b is BudgetBlock => b !== null);
+    .filter((b): b is BudgetBlock => b !== null)
+    .filter((b) => !esBloqueFirmaIa(b));
 
   const validez = num(raw.validezDias);
   return generatedBudgetPayloadSchema.parse({

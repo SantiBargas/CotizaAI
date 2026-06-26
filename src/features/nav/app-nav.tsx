@@ -9,6 +9,7 @@ const navLinks: Array<{ href: string; label: string }> = [
   { href: "/historicos", label: "Históricos" },
   { href: "/generar", label: "Generar" },
   { href: "/presupuestos", label: "Presupuestos" },
+  { href: "/formatos", label: "Formatos" },
   { href: "/perfil", label: "Perfil" },
   { href: "/configuracion", label: "Configuración" },
 ];
@@ -30,7 +31,7 @@ export function AppNav(): React.ReactElement {
             className={cn(
               "rounded-[var(--radius-md)] px-3 py-1.5 text-sm font-medium transition-colors",
               active
-                ? "bg-primary/10 text-primary"
+                ? "bg-gradient-to-r from-brand-aqua/15 to-brand-blue/15 text-brand-blue"
                 : "text-text-muted hover:bg-surface hover:text-text",
             )}
           >

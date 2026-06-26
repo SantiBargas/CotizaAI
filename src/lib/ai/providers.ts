@@ -10,7 +10,13 @@ import { getEnv } from "@/lib/env";
  *    invocando el tool con argumentos estructurados (nada de parsear JSON).
  */
 
-export type ProviderId = "gemini" | "groq" | "openai" | "openrouter";
+export type ProviderId =
+  | "gemini"
+  | "groq"
+  | "mistral"
+  | "cerebras"
+  | "openai"
+  | "openrouter";
 
 export interface ProviderInfo {
   id: ProviderId;
@@ -33,6 +39,18 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderInfo> = {
     defaultModel: "llama-3.3-70b-versatile",
     fastModel: "llama-3.1-8b-instant",
   },
+  mistral: {
+    id: "mistral",
+    label: "Mistral",
+    defaultModel: "mistral-large-latest",
+    fastModel: "mistral-small-latest",
+  },
+  cerebras: {
+    id: "cerebras",
+    label: "Cerebras",
+    defaultModel: "llama-3.3-70b",
+    fastModel: "llama3.1-8b",
+  },
   openai: {
     id: "openai",
     label: "OpenAI",
@@ -48,7 +66,14 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderInfo> = {
 };
 
 /** Orden de preferencia para fallback automático. */
-const FALLBACK_ORDER: ProviderId[] = ["gemini", "groq", "openai", "openrouter"];
+const FALLBACK_ORDER: ProviderId[] = [
+  "gemini",
+  "groq",
+  "mistral",
+  "cerebras",
+  "openai",
+  "openrouter",
+];
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -97,6 +122,10 @@ function getApiKey(provider: ProviderId): string | undefined {
       return env.GEMINI_API_KEY;
     case "groq":
       return env.GROQ_API_KEY;
+    case "mistral":
+      return env.MISTRAL_API_KEY;
+    case "cerebras":
+      return env.CEREBRAS_API_KEY;
     case "openai":
       return env.OPENAI_API_KEY;
     case "openrouter":
@@ -215,6 +244,8 @@ async function geminiGenerate(
 
 const OPENAI_COMPAT_BASE: Record<Exclude<ProviderId, "gemini">, string> = {
   groq: "https://api.groq.com/openai/v1",
+  mistral: "https://api.mistral.ai/v1",
+  cerebras: "https://api.cerebras.ai/v1",
   openai: "https://api.openai.com/v1",
   openrouter: "https://openrouter.ai/api/v1",
 };

@@ -7,6 +7,7 @@ import {
   requireTenantContext,
 } from "@/lib/api";
 import { generatedBudgetPayloadSchema } from "@/types/budget";
+import { parseTemplateConfig } from "@/types/budget-template";
 import { buildBranding } from "@/lib/docx/branding";
 import { buildBudgetDocx } from "@/lib/docx/budget-docx";
 import { buildBudgetPdf } from "@/lib/pdf/budget-pdf";
@@ -14,6 +15,26 @@ import { buildBudgetPdf } from "@/lib/pdf/budget-pdf";
 export const maxDuration = 60;
 
 type RouteParams = { params: Promise<{ id: string }> };
+
+/**
+ * Resuelve la plantilla de formato a aplicar: la pedida por `templateId` (si
+ * existe y es del tenant) o, si no se pidió ninguna, la marcada `isDefault`.
+ */
+async function resolveTemplate(
+  tenantId: string,
+  templateId: string | null,
+): Promise<{ config: unknown } | null> {
+  if (templateId) {
+    return prisma.budgetTemplate.findFirst({
+      where: { id: templateId, tenantId },
+      select: { config: true },
+    });
+  }
+  return prisma.budgetTemplate.findFirst({
+    where: { tenantId, isDefault: true },
+    select: { config: true },
+  });
+}
 
 function fileSlug(title: string): string {
   return (
@@ -54,10 +75,15 @@ export async function GET(
       return badRequest("El contenido del presupuesto está corrupto.");
     }
 
-    const profile = await prisma.companyProfile.findUnique({
-      where: { tenantId: tenant.id },
-    });
-    const branding = buildBranding(tenant, profile);
+    const [profile, template] = await Promise.all([
+      prisma.companyProfile.findUnique({ where: { tenantId: tenant.id } }),
+      resolveTemplate(tenant.id, searchParams.get("templateId")),
+    ]);
+    const branding = buildBranding(
+      tenant,
+      profile,
+      template ? parseTemplateConfig(template.config) : undefined,
+    );
 
     const buffer =
       formato === "docx"

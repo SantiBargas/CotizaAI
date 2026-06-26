@@ -1,5 +1,7 @@
 import type { CompanyProfile, Tenant } from "@prisma/client";
 import { z } from "zod";
+import { parseSigners, type Signer } from "@/types/signer";
+import type { BudgetTemplateConfig } from "@/types/budget-template";
 
 /**
  * Branding por tenant para los documentos exportados (Fase 3).
@@ -16,6 +18,19 @@ export interface DocumentBranding {
   /** Líneas de contacto/razón social para el membrete. */
   companyLines: string[];
   locale: string;
+  /** Firmantes a insertar al final del documento (la IA nunca genera firmas). */
+  signers: Signer[];
+  /** Prefijo antes del título del documento (formato/plantilla elegida). */
+  documentTitlePrefix: string;
+  /** Nota libre debajo del membrete (formato/plantilla elegida). */
+  headerNote: string | null;
+  /** Pie de página (formato/plantilla elegida). */
+  footerText: string;
+  totalLabel: string;
+  paymentLabel: string;
+  validityLabel: string;
+  showLogo: boolean;
+  showSignatures: boolean;
 }
 
 const companyDataSchema = z
@@ -35,6 +50,7 @@ const DEFAULT_SECONDARY = "#008e97";
 export function buildBranding(
   tenant: Tenant,
   profile: CompanyProfile | null,
+  template?: BudgetTemplateConfig,
 ): DocumentBranding {
   const data = companyDataSchema.safeParse(profile?.companyData ?? {});
   const d = data.success ? data.data : {};
@@ -47,11 +63,22 @@ export function buildBranding(
 
   return {
     companyName: d.razonSocial ?? tenant.name,
-    colorPrimary: profile?.colorPrimary ?? DEFAULT_PRIMARY,
-    colorSecondary: profile?.colorSecondary ?? DEFAULT_SECONDARY,
+    colorPrimary:
+      template?.colorPrimary ?? profile?.colorPrimary ?? DEFAULT_PRIMARY,
+    colorSecondary:
+      template?.colorSecondary ?? profile?.colorSecondary ?? DEFAULT_SECONDARY,
     logoUrl: profile?.logoUrl ?? null,
     companyLines,
     locale: tenant.locale,
+    signers: parseSigners(profile?.signers),
+    documentTitlePrefix: template?.documentTitlePrefix ?? "",
+    headerNote: template?.headerNote ?? null,
+    footerText: template?.footerText ?? "Generado con CotizaAI",
+    totalLabel: template?.totalLabel ?? "Total cotizado",
+    paymentLabel: template?.paymentLabel ?? "Forma de pago",
+    validityLabel: template?.validityLabel ?? "Validez de la oferta",
+    showLogo: template?.showLogo ?? true,
+    showSignatures: template?.showSignatures ?? true,
   };
 }
 

@@ -20,6 +20,8 @@ const serverEnvSchema = z.object({
   // IA (opcional en Fase 0; Gemini requerido para extracción/embeddings/generación)
   GEMINI_API_KEY: z.string().optional(),
   GROQ_API_KEY: z.string().optional(),
+  MISTRAL_API_KEY: z.string().optional(),
+  CEREBRAS_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENROUTER_API_KEY: z.string().optional(),
   EMBEDDING_PROVIDER: z.enum(["gemini", "openai"]).default("gemini"),
@@ -36,6 +38,14 @@ const serverEnvSchema = z.object({
   // Google Drive (OAuth por tenant, scope drive.readonly). Opcional.
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
+
+  // Notificaciones por email (Resend). Opcional: sin esto, las solicitudes de
+  // demo solo quedan en la DB.
+  RESEND_API_KEY: z.string().optional(),
+  DEMO_NOTIFY_EMAIL: z.string().email().optional(),
+
+  // Cron jobs (Vercel Cron firma el request con este secret en Authorization).
+  CRON_SECRET: z.string().optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

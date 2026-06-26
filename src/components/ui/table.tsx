@@ -20,7 +20,7 @@ export function THead({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <thead className="border-b border-border bg-surface text-left text-xs font-medium uppercase tracking-wide text-text-muted">
+    <thead className="border-b-2 border-brand-aqua/30 bg-brand-aqua/5 text-left text-xs font-semibold uppercase tracking-wide text-brand-blue">
       {children}
     </thead>
   );

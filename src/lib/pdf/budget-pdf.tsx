@@ -1,5 +1,6 @@
 import {
   Document,
+  Image,
   Page,
   StyleSheet,
   Text,
@@ -9,6 +10,7 @@ import {
 import type { BudgetBlock, GeneratedBudgetPayload } from "@/types/budget";
 import { formatDate, formatMoney } from "@/lib/format";
 import type { DocumentBranding } from "@/lib/docx/branding";
+import { scaleFirma } from "@/types/signer";
 
 /**
  * Export a PDF directo (Fase 3) con @react-pdf/renderer en el servidor.
@@ -32,6 +34,13 @@ function makeStyles(branding: DocumentBranding) {
       color: branding.colorPrimary,
     },
     companyLine: { fontSize: 8, color: "#667780", marginTop: 2 },
+    headerNote: {
+      fontSize: 8,
+      color: "#667780",
+      marginTop: 8,
+      lineHeight: 1.4,
+      textAlign: "justify",
+    },
     headerRule: {
       borderBottomWidth: 2,
       borderBottomColor: branding.colorSecondary,
@@ -104,6 +113,20 @@ function makeStyles(branding: DocumentBranding) {
       color: "#8aa3ab",
       textAlign: "center",
     },
+    signersRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      justifyContent: "space-around",
+      marginTop: 36,
+    },
+    signerBox: {
+      width: "30%",
+      alignItems: "center",
+      marginBottom: 14,
+    },
+    signerLine: { fontSize: 10, marginTop: 28, marginBottom: 4 },
+    signerName: { fontSize: 9, fontFamily: "Helvetica-Bold", marginTop: 4 },
+    signerRole: { fontSize: 8, color: "#667780", marginTop: 2 },
   });
 }
 
@@ -189,10 +212,16 @@ function BudgetPdf({
         ))}
         <View style={styles.headerRule} />
 
-        <Text style={styles.title}>{payload.titulo}</Text>
+        <Text style={styles.title}>
+          {branding.documentTitlePrefix}
+          {payload.titulo}
+        </Text>
         <Text style={styles.date}>
           Fecha: {formatDate(createdAt, branding.locale)}
         </Text>
+        {branding.headerNote && (
+          <Text style={styles.headerNote}>{branding.headerNote}</Text>
+        )}
 
         {payload.cuerpo.map((block, i) => renderBlock(block, i, styles))}
 
@@ -203,7 +232,7 @@ function BudgetPdf({
             <View style={styles.summaryRule} />
             {payload.cotizacionTotal !== null && (
               <Text style={styles.total}>
-                Total cotizado:{" "}
+                {branding.totalLabel}:{" "}
                 <Text style={styles.totalValue}>
                   {formatMoney(
                     payload.cotizacionTotal,
@@ -215,21 +244,45 @@ function BudgetPdf({
             )}
             {payload.formaPago && (
               <Text style={styles.summaryLine}>
-                <Text style={styles.summaryLabel}>Forma de pago: </Text>
+                <Text style={styles.summaryLabel}>
+                  {branding.paymentLabel}:{" "}
+                </Text>
                 {payload.formaPago}
               </Text>
             )}
             {payload.validezDias !== null && (
               <Text style={styles.summaryLine}>
-                <Text style={styles.summaryLabel}>Validez de la oferta: </Text>
+                <Text style={styles.summaryLabel}>
+                  {branding.validityLabel}:{" "}
+                </Text>
                 {payload.validezDias} días
               </Text>
             )}
           </View>
         )}
 
+        {branding.showSignatures && branding.signers.length > 0 && (
+          <View style={styles.signersRow} wrap={false}>
+            {branding.signers.map((s) => (
+              <View key={s.id} style={styles.signerBox}>
+                {s.firma ? (
+                  // eslint-disable-next-line jsx-a11y/alt-text -- Image de @react-pdf, no admite alt
+                  <Image
+                    src={s.firma.dataUrl}
+                    style={scaleFirma(s.firma, 52, 130)}
+                  />
+                ) : (
+                  <Text style={styles.signerLine}>____________________</Text>
+                )}
+                <Text style={styles.signerName}>{s.nombre}</Text>
+                {s.cargo && <Text style={styles.signerRole}>{s.cargo}</Text>}
+              </View>
+            ))}
+          </View>
+        )}
+
         <Text style={styles.footer} fixed>
-          Generado con CotizaAI
+          {branding.footerText}
         </Text>
       </Page>
     </Document>

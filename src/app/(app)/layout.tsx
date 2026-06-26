@@ -13,7 +13,15 @@ export default async function AppLayout({
 
   return (
     <ToastProvider>
-      <div className="flex min-h-screen flex-col bg-surface">
+      <div className="relative flex min-h-screen flex-col bg-surface">
+        <div
+          className="pointer-events-none fixed inset-x-0 top-0 -z-10 h-[480px] bg-gradient-to-b from-brand-aqua/10 via-brand-blue/5 to-transparent"
+          aria-hidden
+        />
+        <div
+          className="pointer-events-none fixed bottom-0 right-0 -z-10 size-[420px] rounded-full bg-brand-orange/5 blur-[120px]"
+          aria-hidden
+        />
         <header className="sticky top-0 z-10 border-b border-border bg-bg">
           {/* Regla de marca: aqua → azul → naranja (Miami Dolphins) */}
           <div className="h-1 bg-gradient-to-r from-brand-aqua via-brand-blue to-brand-orange" />
@@ -35,6 +43,16 @@ export default async function AppLayout({
                   hidePersonal
                   afterCreateOrganizationUrl="/dashboard"
                   afterSelectOrganizationUrl="/dashboard"
+                  appearance={{
+                    elements: {
+                      // El trigger renderiza texto negro por default → token del tema
+                      organizationSwitcherTrigger:
+                        "text-text hover:text-text [&_*]:text-inherit",
+                      // Las orgs las da de alta el dueño del SaaS, no el usuario
+                      organizationSwitcherPopoverActionButton__createOrganization:
+                        "hidden",
+                    },
+                  }}
                 />
                 <UserButton />
               </div>

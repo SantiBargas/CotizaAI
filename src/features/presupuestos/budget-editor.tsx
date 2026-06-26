@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -46,6 +46,21 @@ export function BudgetEditor({
   );
   const [saving, setSaving] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
+  const [templates, setTemplates] = useState<
+    { id: string; name: string; isDefault: boolean }[]
+  >([]);
+  const [templateId, setTemplateId] = useState("");
+
+  useEffect(() => {
+    fetch("/api/formatos")
+      .then((res) => res.json())
+      .then((json: { templates?: typeof templates }) => {
+        setTemplates(json.templates ?? []);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const exportSuffix = templateId ? `&templateId=${templateId}` : "";
 
   function updateBlock(index: number, block: BudgetBlock): void {
     setPayload((prev) => ({
@@ -144,14 +159,35 @@ export function BudgetEditor({
             </Badge>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <a href={`/api/presupuestos/${budget.id}/export?formato=docx`}>
+        <div className="flex flex-wrap items-center gap-2">
+          {templates.length > 0 && (
+            <Select
+              value={templateId}
+              onChange={(e) => setTemplateId(e.target.value)}
+              className="w-auto"
+            >
+              <option value="">
+                Formato por defecto
+              </option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                  {t.isDefault ? " (default)" : ""}
+                </option>
+              ))}
+            </Select>
+          )}
+          <a
+            href={`/api/presupuestos/${budget.id}/export?formato=docx${exportSuffix}`}
+          >
             <Button variant="secondary">
               <FileDown className="size-4" />
               Word
             </Button>
           </a>
-          <a href={`/api/presupuestos/${budget.id}/export?formato=pdf`}>
+          <a
+            href={`/api/presupuestos/${budget.id}/export?formato=pdf${exportSuffix}`}
+          >
             <Button variant="secondary">
               <FileDown className="size-4" />
               PDF

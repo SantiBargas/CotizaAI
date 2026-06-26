@@ -3,9 +3,11 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 // Rutas públicas (no requieren sesión). El resto queda protegido.
 const isPublicRoute = createRouteMatcher([
   "/",
+  "/ingresar",
   "/sign-in(.*)",
-  "/sign-up(.*)",
   "/api/webhooks(.*)",
+  "/api/demo", // solicitud de demo desde la landing (sin sesión)
+  "/api/cron(.*)", // jobs de Vercel Cron (autenticados con CRON_SECRET, no Clerk)
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

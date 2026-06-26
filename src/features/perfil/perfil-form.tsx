@@ -2,13 +2,14 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { PenLine, Plus, Save, Trash2, Upload } from "lucide-react";
+import { PenLine, Plus, Save, Sparkles, Trash2, Upload } from "lucide-react";
 import {
   Button,
   Card,
   CardTitle,
   Field,
   Input,
+  Modal,
   Textarea,
   useToast,
 } from "@/components/ui";
@@ -187,6 +188,9 @@ export function PerfilForm({
               rows={8}
             />
           </Field>
+          <GenerarPromptIA
+            onGenerated={(prompt) => set("industryPrompt", prompt)}
+          />
         </Card>
 
         <div className="flex flex-col gap-6">
@@ -292,6 +296,93 @@ export function PerfilForm({
         onChange={(signers) => set("signers", signers)}
       />
     </div>
+  );
+}
+
+/**
+ * Generador del perfil del rubro con IA: el usuario describe su empresa en
+ * lenguaje natural y la IA arma un prompt completo con reglas (estructura,
+ * desglose, precios, condiciones, tono, prohibiciones).
+ */
+function GenerarPromptIA({
+  onGenerated,
+}: {
+  onGenerated: (prompt: string) => void;
+}): React.ReactElement {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [contexto, setContexto] = useState("");
+  const [generating, setGenerating] = useState(false);
+
+  async function handleGenerate(): Promise<void> {
+    setGenerating(true);
+    try {
+      const res = await fetch("/api/perfil/generar-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contexto }),
+      });
+      const json = (await res.json()) as { prompt?: string; error?: string };
+      if (!res.ok || !json.prompt) {
+        throw new Error(json.error ?? "No se pudo generar el prompt.");
+      }
+      onGenerated(json.prompt);
+      setOpen(false);
+      toast(
+        "success",
+        "Prompt generado. Revisalo, ajustalo si hace falta y guardá el perfil.",
+      );
+    } catch (err) {
+      toast("error", err instanceof Error ? err.message : "Error inesperado.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  return (
+    <>
+      <Button variant="accent" size="sm" onClick={() => setOpen(true)}>
+        <Sparkles className="size-4" />
+        Generar prompt con IA
+      </Button>
+      <Modal
+        open={open}
+        onClose={() => !generating && setOpen(false)}
+        title="Generar perfil del rubro con IA"
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-text-muted">
+            Contale a la IA cómo es tu empresa: a qué se dedica, qué tipo de
+            trabajos cotiza, cómo cobrás, qué incluís y qué no. Con eso arma un
+            prompt completo con reglas que después podés retocar.
+          </p>
+          <Textarea
+            value={contexto}
+            onChange={(e) => setContexto(e.target.value)}
+            rows={6}
+            disabled={generating}
+            placeholder='Ej: "Somos una empresa de instalaciones eléctricas en La Plata. Cotizamos obras residenciales y comerciales. Siempre separamos materiales de mano de obra, cobramos 50% de anticipo, los presupuestos valen 15 días..."'
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => setOpen(false)}
+              disabled={generating}
+            >
+              Cancelar
+            </Button>
+            <Button
+              loading={generating}
+              disabled={contexto.trim().length < 20}
+              onClick={() => void handleGenerate()}
+            >
+              <Sparkles className="size-4" />
+              Generar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
   );
 }
 

@@ -2,6 +2,7 @@ import {
   AlignmentType,
   BorderStyle,
   Document,
+  Footer,
   HeadingLevel,
   ImageRun,
   Packer,
@@ -15,6 +16,7 @@ import {
 import type { GeneratedBudgetPayload, BudgetBlock } from "@/types/budget";
 import { formatMoney, formatDate } from "@/lib/format";
 import { fetchLogo, type DocumentBranding } from "@/lib/docx/branding";
+import { scaleFirma, type Signer } from "@/types/signer";
 
 /**
  * Export a Word (.docx) con branding por tenant (Fase 3).
@@ -129,6 +131,110 @@ function blockToDocx(block: BudgetBlock, branding: DocumentBranding): (Paragraph
   }
 }
 
+const MAX_FIRMAS_POR_FILA = 3;
+const FIRMA_MAX_ALTO_PX = 70;
+const FIRMA_MAX_ANCHO_PX = 170;
+
+function firmaBuffer(dataUrl: string): { data: Buffer; type: "png" | "jpg" } {
+  const [, mime, base64] = /^data:image\/(png|jpeg);base64,(.*)$/.exec(
+    dataUrl,
+  ) ?? [undefined, "png", ""];
+  return {
+    data: Buffer.from(base64 ?? "", "base64"),
+    type: mime === "jpeg" ? "jpg" : "png",
+  };
+}
+
+/** Celda de un firmante: imagen (o línea para rubricar) + nombre + cargo. */
+function signerCell(signer: Signer | null): TableCell {
+  const children: Paragraph[] = [];
+  if (signer) {
+    if (signer.firma) {
+      const { data, type } = firmaBuffer(signer.firma.dataUrl);
+      const dims = scaleFirma(
+        signer.firma,
+        FIRMA_MAX_ALTO_PX,
+        FIRMA_MAX_ANCHO_PX,
+      );
+      children.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 60 },
+          children: [
+            new ImageRun({ type, data, transformation: dims }),
+          ],
+        }),
+      );
+    } else {
+      children.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 480, after: 60 },
+          children: [
+            new TextRun({ text: "______________________", size: 22 }),
+          ],
+        }),
+      );
+    }
+    children.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 20 },
+        children: [new TextRun({ text: signer.nombre, bold: true, size: 21 })],
+      }),
+    );
+    if (signer.cargo) {
+      children.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [
+            new TextRun({ text: signer.cargo, size: 18, color: "667780" }),
+          ],
+        }),
+      );
+    }
+  } else {
+    children.push(new Paragraph({ children: [] }));
+  }
+  return new TableCell({
+    borders: {
+      top: { style: BorderStyle.NONE },
+      bottom: { style: BorderStyle.NONE },
+      left: { style: BorderStyle.NONE },
+      right: { style: BorderStyle.NONE },
+    },
+    margins: { top: 120, bottom: 120, left: 120, right: 120 },
+    width: {
+      size: Math.floor(100 / MAX_FIRMAS_POR_FILA),
+      type: WidthType.PERCENTAGE,
+    },
+    children,
+  });
+}
+
+/** Bloque de firmas al cierre (hasta 3 por fila, layout heredado de ITZA). */
+function signatureSection(branding: DocumentBranding): (Paragraph | Table)[] {
+  if (!branding.showSignatures || branding.signers.length === 0) return [];
+  const rows: TableRow[] = [];
+  for (let i = 0; i < branding.signers.length; i += MAX_FIRMAS_POR_FILA) {
+    const fila = branding.signers.slice(i, i + MAX_FIRMAS_POR_FILA);
+    rows.push(
+      new TableRow({
+        children: Array.from({ length: MAX_FIRMAS_POR_FILA }, (_, c) =>
+          signerCell(fila[c] ?? null),
+        ),
+      }),
+    );
+  }
+  return [
+    new Paragraph({ spacing: { before: 560 }, children: [] }),
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows,
+    }),
+  ];
+}
+
 export async function buildBudgetDocx(params: {
   payload: GeneratedBudgetPayload;
   branding: DocumentBranding;
@@ -138,7 +244,7 @@ export async function buildBudgetDocx(params: {
 
   // Membrete: logo (si hay) + nombre + líneas de contacto.
   const headerChildren: Paragraph[] = [];
-  const logo = await fetchLogo(branding);
+  const logo = branding.showLogo ? await fetchLogo(branding) : null;
   if (logo) {
     headerChildren.push(
       new Paragraph({
@@ -191,7 +297,7 @@ export async function buildBudgetDocx(params: {
       spacing: { after: 60 },
       children: [
         new TextRun({
-          text: payload.titulo,
+          text: `${branding.documentTitlePrefix}${payload.titulo}`,
           bold: true,
           size: 36,
           color: hex(branding.colorPrimary),
@@ -199,7 +305,7 @@ export async function buildBudgetDocx(params: {
       ],
     }),
     new Paragraph({
-      spacing: { after: 280 },
+      spacing: { after: branding.headerNote ? 80 : 280 },
       children: [
         new TextRun({
           text: `Fecha: ${formatDate(createdAt, branding.locale)}`,
@@ -208,6 +314,22 @@ export async function buildBudgetDocx(params: {
         }),
       ],
     }),
+    ...(branding.headerNote
+      ? [
+          new Paragraph({
+            spacing: { after: 280 },
+            alignment: AlignmentType.JUSTIFIED,
+            children: [
+              new TextRun({
+                text: branding.headerNote,
+                italics: true,
+                size: 20,
+                color: "667780",
+              }),
+            ],
+          }),
+        ]
+      : []),
   ];
 
   // Cuerpo desde los bloques.
@@ -238,7 +360,11 @@ export async function buildBudgetDocx(params: {
         new Paragraph({
           spacing: { after: 80 },
           children: [
-            new TextRun({ text: "Total cotizado: ", bold: true, size: 26 }),
+            new TextRun({
+              text: `${branding.totalLabel}: `,
+              bold: true,
+              size: 26,
+            }),
             new TextRun({
               text: formatMoney(
                 payload.cotizacionTotal,
@@ -258,7 +384,11 @@ export async function buildBudgetDocx(params: {
         new Paragraph({
           spacing: { after: 60 },
           children: [
-            new TextRun({ text: "Forma de pago: ", bold: true, size: 22 }),
+            new TextRun({
+              text: `${branding.paymentLabel}: `,
+              bold: true,
+              size: 22,
+            }),
             new TextRun({ text: payload.formaPago, size: 22 }),
           ],
         }),
@@ -269,7 +399,11 @@ export async function buildBudgetDocx(params: {
         new Paragraph({
           spacing: { after: 60 },
           children: [
-            new TextRun({ text: "Validez de la oferta: ", bold: true, size: 22 }),
+            new TextRun({
+              text: `${branding.validityLabel}: `,
+              bold: true,
+              size: 22,
+            }),
             new TextRun({ text: `${payload.validezDias} días`, size: 22 }),
           ],
         }),
@@ -292,7 +426,29 @@ export async function buildBudgetDocx(params: {
             margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 },
           },
         },
-        children: [...headerChildren, ...titleChildren, ...body, ...summary],
+        footers: {
+          default: new Footer({
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({
+                    text: branding.footerText,
+                    size: 16,
+                    color: "8aa3ab",
+                  }),
+                ],
+              }),
+            ],
+          }),
+        },
+        children: [
+          ...headerChildren,
+          ...titleChildren,
+          ...body,
+          ...summary,
+          ...signatureSection(branding),
+        ],
       },
     ],
   });

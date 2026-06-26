@@ -102,6 +102,7 @@ model Tenant {
   usageRecords      UsageRecord[]
   auditLogs         AuditLog[]
   integrations      TenantIntegration[]
+  budgetTemplates   BudgetTemplate[]
 
   @@index([clerkOrgId])
 }
@@ -250,6 +251,29 @@ model GeneratedBudget {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// FORMATOS DE PRESUPUESTO (plantillas configurables sin código)
+// ──────────────────────────────────────────────────────────────────────────
+
+// "Prototipos" de formato (ej: Presupuesto estándar, Licitación...). `config`
+// es BudgetTemplateConfig (src/types/budget-template.ts): etiquetas, colores,
+// notas y secciones que se aplican al exportar Word/PDF. Como máximo una
+// plantilla por tenant tiene isDefault=true (se usa si no se elige ninguna).
+model BudgetTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  name        String
+  description String?
+  isDefault   Boolean  @default(false)
+  config      Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // INFLACIÓN (pluggable por país/moneda)
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -307,6 +331,19 @@ model Subscription {
   updatedAt            DateTime           @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// LEADS (solicitudes de demo desde la landing; sin tenant)
+// ──────────────────────────────────────────────────────────────────────────
+
+model DemoRequest {
+  id        String   @id @default(uuid()) @db.Uuid
+  nombre    String
+  email     String
+  empresa   String?
+  mensaje   String?  @db.Text
+  createdAt DateTime @default(now())
 }
 
 // ──────────────────────────────────────────────────────────────────────────

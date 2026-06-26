@@ -11,6 +11,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
+    "db:keep-alive": "node scripts/keep-supabase-alive.mjs",
     "postinstall": "prisma generate"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "@react-pdf/renderer": "^4.5.1",
     "docx": "^9.7.1",
     "lucide-react": "^1.17.0",
+    "mammoth": "^1.12.0",
     "next": "16.2.7",
     "pg": "^8.21.0",
     "react": "19.2.4",
