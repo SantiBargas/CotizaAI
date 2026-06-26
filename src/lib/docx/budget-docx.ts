@@ -30,6 +30,9 @@ function hex(color: string): string {
   return color.replace("#", "");
 }
 
+const IMAGEN_MAX_ANCHO_PX = 400;
+const IMAGEN_MAX_ALTO_PX = 500;
+
 function blockToDocx(block: BudgetBlock, branding: DocumentBranding): (Paragraph | Table)[] {
   switch (block.type) {
     case "titulo":
@@ -126,6 +129,37 @@ function blockToDocx(block: BudgetBlock, branding: DocumentBranding): (Paragraph
           rows: [headerRow, ...bodyRows],
         }),
         new Paragraph({ spacing: { after: 140 }, children: [] }),
+      ];
+    }
+    case "imagen": {
+      const { data, type } = firmaBuffer(block.base64);
+      const dims = scaleFirma(
+        { dataUrl: block.base64, width: block.width, height: block.height },
+        IMAGEN_MAX_ALTO_PX,
+        IMAGEN_MAX_ANCHO_PX,
+      );
+      return [
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 160, after: block.leyenda ? 40 : 140 },
+          children: [new ImageRun({ type, data, transformation: dims })],
+        }),
+        ...(block.leyenda
+          ? [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 140 },
+                children: [
+                  new TextRun({
+                    text: block.leyenda,
+                    italics: true,
+                    size: 18,
+                    color: "667780",
+                  }),
+                ],
+              }),
+            ]
+          : []),
       ];
     }
   }
@@ -304,11 +338,35 @@ export async function buildBudgetDocx(params: {
         }),
       ],
     }),
+    ...(payload.concepto
+      ? [
+          new Paragraph({
+            spacing: { after: 40 },
+            children: [
+              new TextRun({
+                text: payload.concepto,
+                bold: true,
+                size: 22,
+                color: hex(branding.colorSecondary),
+              }),
+            ],
+          }),
+        ]
+      : []),
     new Paragraph({
       spacing: { after: branding.headerNote ? 80 : 280 },
       children: [
         new TextRun({
-          text: `Fecha: ${formatDate(createdAt, branding.locale)}`,
+          text: [
+            payload.ubicacion ? `Ubicación: ${payload.ubicacion}` : null,
+            `Fecha: ${
+              payload.fecha
+                ? formatDate(new Date(payload.fecha), branding.locale)
+                : formatDate(createdAt, branding.locale)
+            }`,
+          ]
+            .filter((l): l is string => l !== null)
+            .join("  ·  "),
           size: 20,
           color: "667780",
         }),

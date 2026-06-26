@@ -2,6 +2,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import { getCurrentTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { checkGenerationLimit } from "@/lib/billing/limits";
+import { availableProvidersForTenant, PROVIDER_CATALOG } from "@/lib/ai/providers";
 import { GenerarChat } from "@/features/generar/generar-chat";
 
 export const dynamic = "force-dynamic";
@@ -25,17 +26,23 @@ export default async function GenerarPage(): Promise<React.ReactElement> {
     );
   }
 
-  const [user, profile, genLimit] = await Promise.all([
+  const [user, profile, genLimit, allowedProviders] = await Promise.all([
     currentUser(),
     prisma.companyProfile.findUnique({
       where: { tenantId: tenant.id },
       select: { industry: true },
     }),
     checkGenerationLimit(tenant.id),
+    availableProvidersForTenant(tenant.id),
   ]);
 
   const frase =
     FRASES_BIENVENIDA[genLimit.used % FRASES_BIENVENIDA.length];
+
+  const providers = allowedProviders.map((id) => ({
+    id,
+    label: PROVIDER_CATALOG[id].label,
+  }));
 
   return (
     <GenerarChat
@@ -43,6 +50,7 @@ export default async function GenerarPage(): Promise<React.ReactElement> {
       frase={frase}
       industry={profile?.industry ?? null}
       usage={{ used: genLimit.used, limit: genLimit.limit }}
+      providers={providers}
     />
   );
 }

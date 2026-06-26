@@ -37,6 +37,18 @@ const GENERATION_TOOL: ToolDefinition = {
         type: "string",
         description: "Título del presupuesto (corto y profesional).",
       },
+      ubicacion: {
+        type: "string",
+        description: "Ubicación/dirección del trabajo, si el pedido la menciona.",
+      },
+      fecha: {
+        type: "string",
+        description: "Fecha del presupuesto en formato YYYY-MM-DD.",
+      },
+      concepto: {
+        type: "string",
+        description: "Resumen muy corto del servicio cotizado (3-6 palabras).",
+      },
       cotizacionTotal: {
         type: "number",
         description: "Monto total cotizado (solo número, sin símbolo).",
@@ -153,6 +165,8 @@ function limpiarMarkdownBloque(b: BudgetBlock): BudgetBlock {
         encabezados: b.encabezados.map(limpiarMarkdown),
         filas: b.filas.map((fila) => fila.map(limpiarMarkdown)),
       };
+    case "imagen":
+      return b.leyenda ? { ...b, leyenda: limpiarMarkdown(b.leyenda) } : b;
   }
 }
 
@@ -197,6 +211,10 @@ function normalizeBlock(raw: RawBlock): BudgetBlock | null {
         ? { type: "tabla", encabezados, filas }
         : null;
     }
+    case "imagen":
+      // La IA nunca genera bloques de imagen (no puede producir una imagen
+      // real); si lo intenta, se descarta. Los agrega el usuario en el editor.
+      return null;
     default:
       // Bloque desconocido pero con texto → degradar a párrafo.
       return texto ? { type: "parrafo", texto } : null;
@@ -205,6 +223,9 @@ function normalizeBlock(raw: RawBlock): BudgetBlock | null {
 
 interface RawGenerationArgs {
   titulo?: unknown;
+  ubicacion?: unknown;
+  fecha?: unknown;
+  concepto?: unknown;
   cotizacionTotal?: unknown;
   moneda?: unknown;
   formaPago?: unknown;
@@ -259,6 +280,9 @@ export function normalizeGenerationPayload(
   const validez = num(raw.validezDias);
   return generatedBudgetPayloadSchema.parse({
     titulo,
+    ubicacion: str(raw.ubicacion),
+    fecha: str(raw.fecha),
+    concepto: str(raw.concepto),
     cotizacionTotal: num(raw.cotizacionTotal),
     moneda: str(raw.moneda)?.toUpperCase() ?? fallbackCurrency,
     formaPago: str(raw.formaPago),
@@ -298,7 +322,11 @@ function buildSystemPrompt(
       "- Respondé SIEMPRE invocando el tool `emitir_presupuesto`.",
       "- Estructurá el cuerpo con bloques: titulo, subtitulo, parrafo, lista, tabla.",
       "- Usá tablas para ítems cotizados con cantidades y precios.",
+      "- Si el pedido menciona una ubicación/dirección, completá `ubicacion`. Si no la menciona, dejala vacía (no la inventes).",
+      "- Completá `fecha` con la fecha de hoy en formato YYYY-MM-DD si no se especifica otra.",
+      "- Completá `concepto` con un resumen de 3 a 6 palabras del servicio cotizado (ej. \"Mensura de lote urbano\").",
       "- NO incluyas bloques de firma ni datos bancarios inventados.",
+      "- NO generes bloques de tipo imagen: no podés producir imágenes reales; esos bloques los agrega el usuario manualmente en el editor.",
       "- Los precios deben ser coherentes con los históricos de referencia (ya ajustados por inflación a valor de hoy).",
       "- Si el pedido no da suficiente detalle, asumí lo razonable para el rubro y dejalo explícito en el texto.",
       `- Moneda default: ${tenant.defaultCurrency}.`,
@@ -341,6 +369,9 @@ export async function generateBudgetPayload(params: {
   tenant: Tenant;
   profile: CompanyProfile | null;
   requestPrompt: string;
+  /** Proveedor elegido explícitamente por el usuario en el composer (pisa el
+   *  default del tenant si está disponible). */
+  provider?: ProviderId;
 }): Promise<GenerationOutcome> {
   const [allowedProviders, aiConfig] = await Promise.all([
     availableProvidersForTenant(params.tenant.id),
@@ -351,7 +382,11 @@ export async function generateBudgetPayload(params: {
   ]);
   const preferred = aiConfig?.defaultGeneration;
   const provider: ProviderId | undefined =
-    preferred && isProviderId(preferred) ? preferred : undefined;
+    params.provider && allowedProviders.includes(params.provider)
+      ? params.provider
+      : preferred && isProviderId(preferred)
+        ? preferred
+        : undefined;
 
   async function attempt(maxBudgets?: number): Promise<GenerationOutcome> {
     const rag = await buildRagContext({

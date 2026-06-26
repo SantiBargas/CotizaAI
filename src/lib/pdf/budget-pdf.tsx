@@ -53,7 +53,21 @@ function makeStyles(branding: DocumentBranding) {
       color: branding.colorPrimary,
       marginBottom: 4,
     },
+    concepto: {
+      fontSize: 11,
+      fontFamily: "Helvetica-Bold",
+      color: branding.colorSecondary,
+      marginBottom: 2,
+    },
     date: { fontSize: 9, color: "#667780", marginBottom: 16 },
+    imagenBloque: { marginTop: 8, marginBottom: 4, alignSelf: "center" },
+    imagenLeyenda: {
+      fontSize: 8,
+      fontFamily: "Helvetica-Oblique",
+      color: "#667780",
+      textAlign: "center",
+      marginBottom: 10,
+    },
     h1: {
       fontSize: 13,
       fontFamily: "Helvetica-Bold",
@@ -188,6 +202,22 @@ function renderBlock(
           ))}
         </View>
       );
+    case "imagen": {
+      const dims = scaleFirma(
+        { dataUrl: block.base64, width: block.width, height: block.height },
+        400,
+        320,
+      );
+      return (
+        <View key={index}>
+          {/* eslint-disable-next-line jsx-a11y/alt-text -- Image de @react-pdf, no admite alt */}
+          <Image src={block.base64} style={[styles.imagenBloque, dims]} />
+          {block.leyenda && (
+            <Text style={styles.imagenLeyenda}>{block.leyenda}</Text>
+          )}
+        </View>
+      );
+    }
   }
 }
 
@@ -216,8 +246,20 @@ function BudgetPdf({
           {branding.documentTitlePrefix}
           {payload.titulo}
         </Text>
+        {payload.concepto && (
+          <Text style={styles.concepto}>{payload.concepto}</Text>
+        )}
         <Text style={styles.date}>
-          Fecha: {formatDate(createdAt, branding.locale)}
+          {[
+            payload.ubicacion ? `Ubicación: ${payload.ubicacion}` : null,
+            `Fecha: ${
+              payload.fecha
+                ? formatDate(new Date(payload.fecha), branding.locale)
+                : formatDate(createdAt, branding.locale)
+            }`,
+          ]
+            .filter((l): l is string => l !== null)
+            .join("   ·   ")}
         </Text>
         {branding.headerNote && (
           <Text style={styles.headerNote}>{branding.headerNote}</Text>

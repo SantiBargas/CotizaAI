@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { apiError, badRequest, requireTenantContext } from "@/lib/api";
 import { generateBudgetPayload } from "@/lib/ai/generation";
+import { availableProvidersForTenant, isProviderId } from "@/lib/ai/providers";
 import { checkGenerationLimit } from "@/lib/billing/limits";
 import { recordUsage } from "@/lib/ai/usage";
 import { logAudit } from "@/lib/audit";
@@ -13,6 +14,8 @@ export const maxDuration = 120; // RAG + LLM
 const bodySchema = z.object({
   prompt: z.string().min(10).max(5000),
   nivelDetalle: z.enum(["breve", "normal", "detallado"]).default("normal"),
+  /** Proveedor de IA elegido por el usuario en el composer (opcional). */
+  provider: z.string().optional(),
 });
 
 /** Instrucción de formato que acompaña al pedido según el nivel elegido. */
@@ -70,16 +73,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // El nivel de detalle viaja como instrucción de formato; en la DB se guarda
     // solo el pedido original del usuario.
-    const { prompt, nivelDetalle } = parsed.data;
+    const { prompt, nivelDetalle, provider } = parsed.data;
     const promptParaIa =
       nivelDetalle === "normal"
         ? prompt
         : `${prompt}\n\n[${DETALLE_INSTRUCCION[nivelDetalle]}]`;
 
+    if (provider) {
+      if (!isProviderId(provider)) {
+        return badRequest("Proveedor de IA inválido.");
+      }
+      const allowed = await availableProvidersForTenant(tenant.id);
+      if (!allowed.includes(provider)) {
+        return badRequest("Ese proveedor de IA no está disponible para tu cuenta.");
+      }
+    }
+
     const outcome = await generateBudgetPayload({
       tenant,
       profile,
       requestPrompt: promptParaIa,
+      provider: provider && isProviderId(provider) ? provider : undefined,
     });
 
     const budget = await prisma.generatedBudget.create({

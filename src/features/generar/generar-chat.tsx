@@ -16,11 +16,16 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
-import { Badge, Button, cn } from "@/components/ui";
+import { Badge, Button, cn, Select } from "@/components/ui";
 import { formatMoney } from "@/lib/format";
 import type { GeneratedBudgetPayload } from "@/types/budget";
 import { BudgetEditor } from "@/features/presupuestos/budget-editor";
 import type { GeneratedBudgetDetail } from "@/features/presupuestos/types";
+import {
+  GeneratorSessionsSidebar,
+  ToggleSessionsSidebarButton,
+  type SessionSummary,
+} from "@/features/generar/generator-sessions-sidebar";
 
 /** Resultado de una generación, tal como lo devuelve POST /api/generar. */
 interface GenerationResult {
@@ -46,7 +51,10 @@ type ChatMessage =
       state: "error";
       error: string;
       retryText: string;
-    };
+    }
+  /** Mensaje de una sesión retomada: ya no tenemos el GenerationResult
+   *  completo, solo el texto guardado. */
+  | { id: number; role: "assistant"; state: "restored"; text: string };
 
 const RAG_LABELS: Record<GenerationResult["ragMode"], string> = {
   vectorial: "RAG vectorial",
@@ -74,6 +82,25 @@ export interface GenerarChatProps {
   frase: string;
   industry: string | null;
   usage: { used: number; limit: number };
+  providers: Array<{ id: string; label: string }>;
+}
+
+/** Convierte el historial de UI a la forma simple que persisten las sesiones
+ *  (rol + texto plano). Los mensajes en curso (loading/error) no se guardan. */
+function toApiMessages(
+  messages: ChatMessage[],
+): Array<{ role: "user" | "assistant"; content: string }> {
+  const out: Array<{ role: "user" | "assistant"; content: string }> = [];
+  for (const m of messages) {
+    if (m.role === "user") {
+      out.push({ role: "user", content: m.text });
+    } else if (m.state === "done") {
+      out.push({ role: "assistant", content: `Generé: ${m.result.title}` });
+    } else if (m.state === "restored") {
+      out.push({ role: "assistant", content: m.text });
+    }
+  }
+  return out;
 }
 
 /**
@@ -86,20 +113,106 @@ export function GenerarChat({
   frase,
   industry,
   usage,
+  providers,
 }: GenerarChatProps): React.ReactElement {
   const router = useRouter();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [nivel, setNivel] = useState<NivelDetalle>("normal");
+  const [provider, setProvider] = useState(providers[0]?.id ?? "");
   const [used, setUsed] = useState(usage.used);
   const [generating, setGenerating] = useState(false);
   const [activeBudget, setActiveBudget] =
     useState<GeneratedBudgetDetail | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [lastSavedSession, setLastSavedSession] = useState<SessionSummary | null>(
+    null,
+  );
+  const savingSessionRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const remaining = Math.max(0, usage.limit - used);
   const empty = messages.length === 0;
+
+  // Autosave del historial: crea la sesión en el primer turno y la actualiza
+  // en los siguientes (debounce 1.5s, mismo patrón que ITZA).
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const timer = setTimeout(() => {
+      if (savingSessionRef.current) return;
+      savingSessionRef.current = true;
+      const apiMessages = toApiMessages(messages);
+      const lastDone = [...messages]
+        .reverse()
+        .find((m): m is Extract<ChatMessage, { state: "done" }> =>
+          m.role === "assistant" && m.state === "done",
+        );
+      const tituloBase =
+        lastDone?.result.title ??
+        messages.find((m): m is Extract<ChatMessage, { role: "user" }> => m.role === "user")
+          ?.text.slice(0, 60) ??
+        "Nuevo presupuesto";
+      const body = { titulo: tituloBase, mensajes: apiMessages };
+      const req = sessionId
+        ? fetch(`/api/generador-sesiones/${sessionId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          })
+        : fetch("/api/generador-sesiones", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+      req
+        .then((r) => (r.ok ? (r.json() as Promise<{ id?: string }>) : null))
+        .then((data) => {
+          const id = sessionId ?? data?.id ?? null;
+          if (!sessionId && data?.id) setSessionId(data.id);
+          if (id) {
+            setLastSavedSession({ id, title: tituloBase, updatedAt: new Date().toISOString() });
+          }
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          savingSessionRef.current = false;
+        });
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [messages, sessionId]);
+
+  function handleNewChat(): void {
+    setMessages([]);
+    setActiveBudget(null);
+    setSessionId(null);
+  }
+
+  async function handleSelectSession(id: string): Promise<void> {
+    const res = await fetch(`/api/generador-sesiones/${id}`);
+    if (!res.ok) return;
+    const json = (await res.json()) as {
+      session?: {
+        id: string;
+        messages: Array<{ role: "user" | "assistant"; content: string }>;
+      };
+    };
+    if (!json.session) return;
+    setMessages(
+      json.session.messages.map((m) =>
+        m.role === "user"
+          ? { id: nextId++, role: "user", text: m.content }
+          : { id: nextId++, role: "assistant", state: "restored", text: m.content },
+      ),
+    );
+    setActiveBudget(null);
+    setSessionId(json.session.id);
+  }
+
+  function handleSessionDeleted(id: string): void {
+    if (id === sessionId) handleNewChat();
+  }
 
   // Auto-resize del textarea: una línea al inicio, crece hasta el max-h.
   useLayoutEffect(() => {
@@ -141,7 +254,11 @@ export function GenerarChat({
       const res = await fetch("/api/generar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: text, nivelDetalle: nivel }),
+        body: JSON.stringify({
+          prompt: text,
+          nivelDetalle: nivel,
+          ...(provider && { provider }),
+        }),
       });
       const json = (await res.json()) as {
         budget?: {
@@ -232,6 +349,10 @@ export function GenerarChat({
       {/* Barra superior del generador */}
       <div className="flex shrink-0 items-center justify-between gap-3 pb-3">
         <div className="flex min-w-0 items-center gap-3">
+          <ToggleSessionsSidebarButton
+            open={sidebarOpen}
+            onClick={() => setSidebarOpen((o) => !o)}
+          />
           <h1 className="shrink-0 text-xl font-bold tracking-tight text-text-heading">
             Generar
           </h1>
@@ -256,10 +377,7 @@ export function GenerarChat({
             variant="secondary"
             size="sm"
             disabled={generating}
-            onClick={() => {
-              setMessages([]);
-              setActiveBudget(null);
-            }}
+            onClick={handleNewChat}
           >
             <Plus className="size-4" />
             Nueva conversación
@@ -267,7 +385,15 @@ export function GenerarChat({
         )}
       </div>
 
-      <div className="flex min-h-0 flex-1 gap-5">
+      <div className="flex min-h-0 flex-1 gap-4">
+        <GeneratorSessionsSidebar
+          open={sidebarOpen}
+          currentSessionId={sessionId}
+          lastSavedSession={lastSavedSession}
+          onSelectSession={(id) => void handleSelectSession(id)}
+          onNewChat={handleNewChat}
+          onSessionDeleted={handleSessionDeleted}
+        />
         {/* Columna chat */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* Hilo / estado vacío */}
@@ -329,6 +455,12 @@ export function GenerarChat({
                       </div>
                       {m.state === "loading" ? (
                         <LoadingBubble />
+                      ) : m.state === "restored" ? (
+                        <div className="max-w-[min(100%,40rem)] rounded-2xl rounded-tl-md border border-border bg-surface-elevated px-4 py-2.5 text-sm leading-relaxed text-text shadow-[var(--shadow-sm)]">
+                          <span className="whitespace-pre-wrap break-words">
+                            {m.text}
+                          </span>
+                        </div>
                       ) : m.state === "error" ? (
                         <div className="flex max-w-[min(100%,40rem)] flex-col gap-2 rounded-2xl rounded-tl-md border border-error/40 bg-error/5 px-4 py-3">
                           <p className="flex items-center gap-2 text-sm text-error">
@@ -409,29 +541,46 @@ export function GenerarChat({
                 </button>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2.5 pt-2">
-                <div
-                  className="flex items-center gap-1"
-                  role="radiogroup"
-                  aria-label="Nivel de detalle"
-                >
-                  {NIVELES.map((n) => (
-                    <button
-                      key={n.id}
-                      type="button"
-                      role="radio"
-                      aria-checked={nivel === n.id}
-                      onClick={() => setNivel(n.id)}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div
+                    className="flex items-center gap-1"
+                    role="radiogroup"
+                    aria-label="Nivel de detalle"
+                  >
+                    {NIVELES.map((n) => (
+                      <button
+                        key={n.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={nivel === n.id}
+                        onClick={() => setNivel(n.id)}
+                        disabled={generating}
+                        className={cn(
+                          "rounded-[var(--radius-full)] px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                          nivel === n.id
+                            ? "bg-primary/10 text-primary"
+                            : "text-text-muted hover:bg-surface hover:text-text",
+                        )}
+                      >
+                        {n.label}
+                      </button>
+                    ))}
+                  </div>
+                  {providers.length > 1 && (
+                    <Select
+                      value={provider}
+                      onChange={(e) => setProvider(e.target.value)}
                       disabled={generating}
-                      className={cn(
-                        "rounded-[var(--radius-full)] px-2.5 py-1 text-[11px] font-semibold transition-colors",
-                        nivel === n.id
-                          ? "bg-primary/10 text-primary"
-                          : "text-text-muted hover:bg-surface hover:text-text",
-                      )}
+                      className="h-7 w-auto py-0 text-[11px]"
+                      aria-label="Proveedor de IA"
                     >
-                      {n.label}
-                    </button>
-                  ))}
+                      {providers.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </Select>
+                  )}
                 </div>
                 <span
                   className={cn(

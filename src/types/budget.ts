@@ -28,6 +28,16 @@ export const budgetBlockSchema = z.discriminatedUnion("type", [
     encabezados: z.array(z.string()),
     filas: z.array(z.array(z.string())),
   }),
+  z.object({
+    type: z.literal("imagen"),
+    /** Data URL base64 (la IA nunca genera este bloque; lo agrega el usuario
+     *  en el editor). Dimensiones reales para escalar sin deformar al
+     *  exportar (mismo patrón que `signerFirmaSchema`). */
+    base64: z.string(),
+    width: z.number().int().min(10).max(4000),
+    height: z.number().int().min(10).max(4000),
+    leyenda: z.string().nullable(),
+  }),
 ]);
 
 export type BudgetBlock = z.infer<typeof budgetBlockSchema>;
@@ -35,6 +45,12 @@ export type BudgetBlock = z.infer<typeof budgetBlockSchema>;
 /** Payload completo que el LLM entrega vía tool-calling. */
 export const generatedBudgetPayloadSchema = z.object({
   titulo: z.string(),
+  /** Ubicación del trabajo (dirección/localidad), si aplica al pedido. */
+  ubicacion: z.string().nullable(),
+  /** Fecha del presupuesto en formato ISO yyyy-mm-dd. */
+  fecha: z.string().nullable(),
+  /** Resumen corto del servicio cotizado (ej. "Mensura de lote urbano"). */
+  concepto: z.string().nullable(),
   cotizacionTotal: z.number().nullable(),
   moneda: z.string().default("ARS"),
   formaPago: z.string().nullable(),

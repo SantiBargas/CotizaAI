@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowDown,
+  DragDropContext,
+  Draggable,
+  Droppable,
+  type DropResult,
+} from "@hello-pangea/dnd";
+import {
   ArrowLeft,
-  ArrowUp,
   CheckCircle2,
   FileDown,
+  GripVertical,
+  Image as ImageIcon,
   Plus,
   Save,
   Trash2,
@@ -29,8 +35,82 @@ import { BUDGET_STATUS_LABELS, type GeneratedBudgetDetail } from "./types";
 
 /**
  * Editor de bloques del presupuesto generado. El usuario ajusta lo que produjo
- * la IA (textos, listas, tablas, total) antes de marcarlo FINAL y exportarlo.
+ * la IA (textos, listas, tablas, imágenes, total) antes de marcarlo FINAL y
+ * exportarlo. Reordenamiento por drag & drop (igual concepto que ITZA).
  */
+
+type TextBlockType = "titulo" | "subtitulo" | "parrafo" | "lista" | "tabla";
+
+const BLOCK_BADGE: Record<BudgetBlock["type"], "info" | "accent" | "neutral" | "success" | "warning"> = {
+  titulo: "info",
+  subtitulo: "accent",
+  parrafo: "neutral",
+  lista: "success",
+  tabla: "warning",
+  imagen: "info",
+};
+
+const IMAGEN_MAX_DIM = 800;
+
+/** Lee un archivo de imagen, lo redimensiona client-side (máx 800x800
+ *  manteniendo proporción) y devuelve el data URL + dimensiones reales. */
+function leerImagenBloque(
+  file: File,
+): Promise<{ dataUrl: string; width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    if (!["image/png", "image/jpeg"].includes(file.type)) {
+      reject(new Error("La imagen debe ser PNG o JPG."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("No se pudo leer la imagen."));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("La imagen no es válida."));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > IMAGEN_MAX_DIM) {
+          height = Math.round((height * IMAGEN_MAX_DIM) / width);
+          width = IMAGEN_MAX_DIM;
+        }
+        if (height > IMAGEN_MAX_DIM) {
+          width = Math.round((width * IMAGEN_MAX_DIM) / height);
+          height = IMAGEN_MAX_DIM;
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("No se pudo procesar la imagen."));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl =
+          file.type === "image/png"
+            ? canvas.toDataURL("image/png")
+            : canvas.toDataURL("image/jpeg", 0.85);
+        resolve({ dataUrl, width, height });
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Heurístico heredado de ITZA: detecta el bloque donde suele empezar el
+ *  cierre financiero, para ofrecer ahí mismo una botonera de inserción y no
+ *  obligar a scrollear hasta el final al armar la sección de pago. */
+const PALABRAS_CIERRE = ["valor", "cotiz", "honorari", "forma de pago", "condicion", "condición"];
+
+function indiceCierreFinanciero(cuerpo: BudgetBlock[]): number {
+  return cuerpo.findIndex(
+    (b) =>
+      (b.type === "titulo" || b.type === "subtitulo") &&
+      PALABRAS_CIERRE.some((p) => b.texto.toLowerCase().includes(p)),
+  );
+}
+
 export function BudgetEditor({
   budget,
   embedded = false,
@@ -76,17 +156,15 @@ export function BudgetEditor({
     }));
   }
 
-  function moveBlock(index: number, dir: -1 | 1): void {
+  function insertBlockAt(index: number, block: BudgetBlock): void {
     setPayload((prev) => {
-      const next = [...prev.cuerpo];
-      const target = index + dir;
-      if (target < 0 || target >= next.length) return prev;
-      [next[index], next[target]] = [next[target], next[index]];
-      return { ...prev, cuerpo: next };
+      const cuerpo = [...prev.cuerpo];
+      cuerpo.splice(index, 0, block);
+      return { ...prev, cuerpo };
     });
   }
 
-  function addBlock(type: BudgetBlock["type"]): void {
+  function addTextBlock(type: TextBlockType, index: number): void {
     const block: BudgetBlock =
       type === "lista"
         ? { type: "lista", items: ["Nuevo ítem"] }
@@ -97,7 +175,29 @@ export function BudgetEditor({
               filas: [["", "", ""]],
             }
           : { type, texto: "" };
-    setPayload((prev) => ({ ...prev, cuerpo: [...prev.cuerpo, block] }));
+    insertBlockAt(index, block);
+  }
+
+  async function addImageBlock(file: File, index: number): Promise<void> {
+    try {
+      const { dataUrl, width, height } = await leerImagenBloque(file);
+      insertBlockAt(index, { type: "imagen", base64: dataUrl, width, height, leyenda: null });
+    } catch (err) {
+      toast("error", err instanceof Error ? err.message : "No se pudo cargar la imagen.");
+    }
+  }
+
+  function handleDragEnd(result: DropResult): void {
+    if (!result.destination) return;
+    const from = result.source.index;
+    const to = result.destination.index;
+    if (from === to) return;
+    setPayload((prev) => {
+      const cuerpo = [...prev.cuerpo];
+      const [moved] = cuerpo.splice(from, 1);
+      cuerpo.splice(to, 0, moved);
+      return { ...prev, cuerpo };
+    });
   }
 
   async function persist(
@@ -133,6 +233,8 @@ export function BudgetEditor({
     }
     setFinalizing(false);
   }
+
+  const idxCierre = indiceCierreFinanciero(payload.cuerpo);
 
   return (
     <div className="flex flex-col gap-6">
@@ -220,6 +322,35 @@ export function BudgetEditor({
             }
           />
         </Field>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Field label="Ubicación">
+            <Input
+              value={payload.ubicacion ?? ""}
+              placeholder="Dirección o localidad del trabajo"
+              onChange={(e) =>
+                setPayload((p) => ({ ...p, ubicacion: e.target.value || null }))
+              }
+            />
+          </Field>
+          <Field label="Fecha">
+            <Input
+              type="date"
+              value={payload.fecha ?? ""}
+              onChange={(e) =>
+                setPayload((p) => ({ ...p, fecha: e.target.value || null }))
+              }
+            />
+          </Field>
+          <Field label="Concepto">
+            <Input
+              value={payload.concepto ?? ""}
+              placeholder="Resumen corto del servicio"
+              onChange={(e) =>
+                setPayload((p) => ({ ...p, concepto: e.target.value || null }))
+              }
+            />
+          </Field>
+        </div>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Field label="Total">
             <Input
@@ -278,79 +409,165 @@ export function BudgetEditor({
         </div>
       </Card>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-text-heading">
             Cuerpo del presupuesto
           </h2>
-          <AddBlockMenu onAdd={addBlock} />
+          <span className="text-xs text-text-muted">
+            {payload.cuerpo.length} bloque(s) · arrastrá para reordenar
+          </span>
         </div>
 
-        {payload.cuerpo.map((block, i) => (
-          <Card key={i} className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <Badge variant="info">{block.type}</Badge>
-              <div className="flex gap-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => moveBlock(i, -1)}
-                  aria-label="Subir"
-                >
-                  <ArrowUp className="size-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => moveBlock(i, 1)}
-                  aria-label="Bajar"
-                >
-                  <ArrowDown className="size-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeBlock(i)}
-                  aria-label="Eliminar bloque"
-                >
-                  <Trash2 className="size-4 text-error" />
-                </Button>
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <Droppable droppableId="cuerpo">
+            {(provided) => (
+              <div
+                ref={provided.innerRef}
+                {...provided.droppableProps}
+                className="flex flex-col gap-2"
+              >
+                {payload.cuerpo.map((block, i) => (
+                  <BlockRow
+                    key={`block-${i}`}
+                    block={block}
+                    index={i}
+                    showInsertBefore={i === idxCierre}
+                    onChange={(b) => updateBlock(i, b)}
+                    onRemove={() => removeBlock(i)}
+                    onAddText={(type) => addTextBlock(type, i)}
+                    onAddImage={(file) => void addImageBlock(file, i)}
+                  />
+                ))}
+                {provided.placeholder}
               </div>
-            </div>
-            <BlockEditor
-              block={block}
-              onChange={(b) => updateBlock(i, b)}
-            />
-          </Card>
-        ))}
+            )}
+          </Droppable>
+        </DragDropContext>
+
+        <AddBlockToolbar
+          onAddText={(type) => addTextBlock(type, payload.cuerpo.length)}
+          onAddImage={(file) => void addImageBlock(file, payload.cuerpo.length)}
+        />
       </div>
     </div>
   );
 }
 
-function AddBlockMenu({
-  onAdd,
+function BlockRow({
+  block,
+  index,
+  showInsertBefore,
+  onChange,
+  onRemove,
+  onAddText,
+  onAddImage,
 }: {
-  onAdd: (type: BudgetBlock["type"]) => void;
+  block: BudgetBlock;
+  index: number;
+  showInsertBefore: boolean;
+  onChange: (block: BudgetBlock) => void;
+  onRemove: () => void;
+  onAddText: (type: TextBlockType) => void;
+  onAddImage: (file: File) => void;
 }): React.ReactElement {
-  const [type, setType] = useState<BudgetBlock["type"]>("parrafo");
   return (
-    <div className="flex items-center gap-2">
-      <Select
-        value={type}
-        onChange={(e) => setType(e.target.value as BudgetBlock["type"])}
-        className="w-36"
-      >
-        <option value="titulo">Título</option>
-        <option value="subtitulo">Subtítulo</option>
-        <option value="parrafo">Párrafo</option>
-        <option value="lista">Lista</option>
-        <option value="tabla">Tabla</option>
-      </Select>
-      <Button variant="secondary" size="sm" onClick={() => onAdd(type)}>
-        <Plus className="size-4" />
-        Agregar bloque
+    <>
+      {showInsertBefore && (
+        <div className="flex flex-col items-center gap-1.5 py-1">
+          <div className="flex w-full items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+            <div className="h-px flex-1 bg-border" />
+            <span>cierre financiero detectado</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+          <AddBlockToolbar onAddText={onAddText} onAddImage={onAddImage} compact />
+        </div>
+      )}
+      <Draggable draggableId={`block-${index}`} index={index}>
+        {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.draggableProps}
+            className={`group relative flex flex-col gap-3 rounded-[var(--radius-lg)] border border-border bg-surface-elevated p-5 pl-9 shadow-[var(--shadow-sm)] ${
+              snapshot.isDragging ? "shadow-[var(--shadow-md)] ring-1 ring-primary/40" : ""
+            }`}
+          >
+            <div
+              {...provided.dragHandleProps}
+              className="absolute left-2 top-1/2 -translate-y-1/2 cursor-grab text-text-muted opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
+              aria-label="Reordenar bloque"
+            >
+              <GripVertical className="size-4" />
+            </div>
+            <div className="flex items-center justify-between">
+              <Badge variant={BLOCK_BADGE[block.type]}>{block.type}</Badge>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onRemove}
+                aria-label="Eliminar bloque"
+                className="opacity-0 transition-opacity group-hover:opacity-100"
+              >
+                <Trash2 className="size-4 text-error" />
+              </Button>
+            </div>
+            <BlockEditor block={block} onChange={onChange} />
+          </div>
+        )}
+      </Draggable>
+    </>
+  );
+}
+
+function AddBlockToolbar({
+  onAddText,
+  onAddImage,
+  compact = false,
+}: {
+  onAddText: (type: TextBlockType) => void;
+  onAddImage: (file: File) => void;
+  compact?: boolean;
+}): React.ReactElement {
+  const fileRef = useRef<HTMLInputElement>(null);
+  return (
+    <div
+      className={`flex flex-wrap items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-dashed border-border bg-surface/60 p-2 ${compact ? "" : "self-center"}`}
+    >
+      {!compact && (
+        <span className="px-2 text-[10px] font-bold uppercase tracking-wide text-text-muted">
+          Agregar
+        </span>
+      )}
+      <Button variant="ghost" size="sm" onClick={() => onAddText("titulo")}>
+        Título
       </Button>
+      <Button variant="ghost" size="sm" onClick={() => onAddText("subtitulo")}>
+        Subtítulo
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => onAddText("parrafo")}>
+        Párrafo
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => onAddText("lista")}>
+        Lista
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => onAddText("tabla")}>
+        Tabla
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()}>
+        <ImageIcon className="size-3.5" />
+        Imagen
+      </Button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/png,image/jpeg"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) onAddImage(file);
+        }}
+      />
     </div>
   );
 }
@@ -396,6 +613,22 @@ function BlockEditor({
       );
     case "tabla":
       return <TableBlockEditor block={block} onChange={onChange} />;
+    case "imagen":
+      return (
+        <div className="flex flex-col gap-2">
+          {/* eslint-disable-next-line @next/next/no-img-element -- data URL local, no aplica next/image */}
+          <img
+            src={block.base64}
+            alt=""
+            className="max-h-56 w-auto self-center rounded-[var(--radius-md)] border border-border object-contain"
+          />
+          <Input
+            value={block.leyenda ?? ""}
+            placeholder="Leyenda (opcional)"
+            onChange={(e) => onChange({ ...block, leyenda: e.target.value || null })}
+          />
+        </div>
+      );
   }
 }
 
