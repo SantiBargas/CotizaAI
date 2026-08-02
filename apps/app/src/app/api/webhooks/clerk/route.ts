@@ -83,7 +83,22 @@ async function upsertMembership(d: ClerkMembershipData): Promise<void> {
     select: { id: true },
   });
   if (!tenant || !user) return; // los eventos de user/org pueden llegar después
-  const role = mapRole(d.role);
+
+  const existing = await prisma.membership.findUnique({
+    where: { tenantId_userId: { tenantId: tenant.id, userId: user.id } },
+    select: { role: true },
+  });
+  const isFirstMembership =
+    !existing &&
+    (await prisma.membership.count({ where: { tenantId: tenant.id } })) === 0;
+
+  // El creador de la organización (primera membership del tenant) es OWNER,
+  // sin importar el rol que mande Clerk (que solo distingue admin/member).
+  // Si ya era OWNER, un evento .updated posterior no lo baja de rango.
+  const role =
+    existing?.role === MembershipRole.OWNER || isFirstMembership
+      ? MembershipRole.OWNER
+      : mapRole(d.role);
   await prisma.membership.upsert({
     where: { tenantId_userId: { tenantId: tenant.id, userId: user.id } },
     create: { tenantId: tenant.id, userId: user.id, role },

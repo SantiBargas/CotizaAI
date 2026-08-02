@@ -18,14 +18,14 @@ import {
   Wand2,
   Wrench,
 } from "lucide-react";
-import { DemoRequest, ParticleField } from "@cotizaai/ui";
+import { ButtonLink, ParticleField } from "@cotizaai/ui";
 import { MarketingNav } from "@/features/landing/marketing-nav";
 import { ProductMockup } from "@/features/landing/product-mockup";
 
 /**
  * Página de marketing (/). One-page con scroll que vende el producto y empuja
- * todo a "Solicitar demo" (sin alta self-serve ni precios). El login vive en
- * apps/app (NEXT_PUBLIC_APP_URL + /ingresar).
+ * todo a "Registrate gratis" (self-serve, sin precios todavía). El login/
+ * registro vive en apps/app (NEXT_PUBLIC_APP_URL + /ingresar).
  */
 export default function MarketingPage(): React.ReactElement {
   return (
@@ -77,7 +77,13 @@ function Hero(): React.ReactElement {
         </p>
 
         <div className="flex flex-wrap items-center justify-center gap-4">
-          <DemoRequest size="lg" />
+          <ButtonLink
+            href={`${process.env.NEXT_PUBLIC_APP_URL}/ingresar?modo=registro`}
+            variant="accent"
+            size="lg"
+          >
+            Registrate gratis
+          </ButtonLink>
           <a
             href="#como-funciona"
             className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-surface-elevated/80 px-5 py-2.5 text-sm font-semibold text-text backdrop-blur-sm transition-colors hover:border-brand-aqua/40 hover:text-brand-aqua"
@@ -88,7 +94,7 @@ function Hero(): React.ReactElement {
         </div>
 
         <p className="text-sm font-medium text-text-muted">
-          Sin tarjeta · demo guiada con presupuestos de tu rubro
+          Sin tarjeta · empezá a cotizar en minutos
         </p>
       </div>
     </section>
@@ -386,7 +392,7 @@ const faqs = [
   },
   {
     q: "¿Cómo empiezo?",
-    a: "Pedí una demo: te mostramos CotizaAI funcionando con presupuestos de tu rubro y, si te cierra, el equipo deja tu cuenta configurada con tu histórico cargado.",
+    a: "Te registrás gratis, cargás tus presupuestos históricos y en minutos ya estás generando cotizaciones con tu propio estilo. Sin tarjeta, sin esperar a que nadie te configure la cuenta.",
   },
 ];
 
@@ -437,11 +443,17 @@ function CtaFinal(): React.ReactElement {
           Tu próximo presupuesto puede llevarte 5 minutos
         </h2>
         <p className="relative mx-auto mt-4 max-w-xl text-balance text-base leading-7 text-white/75">
-          Pedí una demo guiada: la armamos con presupuestos de tu rubro para
-          que veas exactamente cómo trabajaría con los tuyos.
+          Registrate gratis y probalo con tus propios presupuestos históricos
+          — sin tarjeta, sin esperar a nadie.
         </p>
         <div className="relative mt-8 flex items-center justify-center gap-4">
-          <DemoRequest size="lg" />
+          <ButtonLink
+            href={`${process.env.NEXT_PUBLIC_APP_URL}/ingresar?modo=registro`}
+            variant="accent"
+            size="lg"
+          >
+            Registrate gratis
+          </ButtonLink>
           <a
             href={`${process.env.NEXT_PUBLIC_APP_URL}/ingresar`}
             className="inline-flex items-center gap-1.5 text-sm font-semibold text-white/80 transition-colors hover:text-white"

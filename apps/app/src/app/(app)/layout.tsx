@@ -89,9 +89,6 @@ export default async function AppLayout({
                       // El trigger renderiza texto negro por default → token del tema
                       organizationSwitcherTrigger:
                         "text-text hover:text-text [&_*]:text-inherit",
-                      // Las orgs las da de alta el dueño del SaaS, no el usuario
-                      organizationSwitcherPopoverActionButton__createOrganization:
-                        "hidden",
                     },
                   }}
                 />

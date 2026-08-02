@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CreateOrganization } from "@clerk/nextjs";
 import { getCurrentTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { formatDateTime } from "@/lib/format";
@@ -16,9 +17,17 @@ export default async function DashboardPage(): Promise<React.ReactElement> {
 
   if (!tenant) {
     return (
-      <p className="text-sm text-text-muted">
-        Creá o seleccioná una organización para ver el panel.
-      </p>
+      <div className="flex flex-col items-center gap-4 py-8">
+        <p className="text-sm text-text-muted">
+          Creá tu empresa para empezar a cotizar.
+        </p>
+        <CreateOrganization
+          afterCreateOrganizationUrl="/dashboard"
+          appearance={{
+            variables: { colorPrimary: "#008e97", borderRadius: "10px" },
+          }}
+        />
+      </div>
     );
   }
 

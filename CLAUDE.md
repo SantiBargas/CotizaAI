@@ -167,8 +167,10 @@ services/
 - **Fase 2 — Motor RAG + generación:** retrieval léxico+vectorial scopeado por
   tenant, ajuste por inflación, generación con tool-calling, editor de bloques.
 - **Fase 3 — Export documentos:** Word/PDF con branding por tenant.
-- **Fase 4 — Billing + onboarding pulido:** Stripe (+ Mercado Pago AR), planes,
-  límites por uso, onboarding self-serve completo.
+- **Fase 4 — Billing + onboarding pulido:** registro self-serve ya existe
+  (`/ingresar?modo=registro` + alta de organización inline en `/dashboard`,
+  plan FREE por default). Falta: Stripe (+ Mercado Pago AR), selección de
+  plan durante el alta, límites por uso más finos.
 - **Fase 5 — Mejoras (completada):** modo oscuro (cookie + toggle), énfasis
   paleta Miami Dolphins, onboarding guiado en dashboard, checkout de Stripe
   (`/api/billing/checkout`), integración Google Drive (OAuth por tenant +

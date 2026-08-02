@@ -1,18 +1,25 @@
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
-import { SignIn } from "@clerk/nextjs";
+import { SignIn, SignUp } from "@clerk/nextjs";
 import { ArrowRight, FileText, Sparkles, TrendingUp } from "lucide-react";
-import { DemoRequest, ParticleField } from "@cotizaai/ui";
+import { ButtonLink, ParticleField } from "@cotizaai/ui";
 
 /**
- * Página de ingreso (/ingresar). Sin alta self-serve: las cuentas las da de
- * alta el equipo de CotizaAI — info del producto + inicio de sesión embebido
- * (70/30, sin scroll). Fondo de partículas reactivo al mouse.
+ * Página de ingreso (/ingresar). Login y registro self-serve en un mismo
+ * lugar (toggle vía ?modo=registro) — info del producto + form embebido de
+ * Clerk (70/30, sin scroll). Fondo de partículas reactivo al mouse.
  */
-export default async function IngresarPage(): Promise<React.ReactElement> {
+export default async function IngresarPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ modo?: string }>;
+}): Promise<React.ReactElement> {
   // Con sesión iniciada la landing no existe: directo al panel.
   const { userId } = await auth();
   if (userId) redirect("/dashboard");
+
+  const { modo } = await searchParams;
+  const esRegistro = modo === "registro";
 
   const features = [
     {
@@ -38,6 +45,22 @@ export default async function IngresarPage(): Promise<React.ReactElement> {
     },
   ];
 
+  const clerkAppearance = {
+    variables: {
+      colorPrimary: "#008e97",
+      fontSizeBase: "0.8125rem",
+      spacingUnit: "0.85rem",
+      borderRadius: "10px",
+    },
+    elements: {
+      rootBox: "w-full",
+      cardBox: "w-full shadow-[var(--shadow-md)]",
+      card: "w-full",
+      footer: "hidden",
+      footerAction: "hidden",
+    },
+  };
+
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-bg">
       {/* Partículas de marca reactivas al mouse, detrás de todo */}
@@ -60,7 +83,9 @@ export default async function IngresarPage(): Promise<React.ReactElement> {
             <span className="text-brand-aqua">AI</span>
           </a>
           <div className="absolute right-6 top-5 sm:right-10 sm:top-6">
-            <DemoRequest />
+            <ButtonLink href="?modo=registro" variant="accent" size="md">
+              Registrarme gratis
+            </ButtonLink>
           </div>
 
           <span className="relative inline-flex items-center gap-1.5 rounded-[var(--radius-full)] border border-brand-aqua/40 bg-brand-aqua/5 px-3.5 py-1.5 text-xs font-semibold text-brand-aqua backdrop-blur-sm">
@@ -83,9 +108,11 @@ export default async function IngresarPage(): Promise<React.ReactElement> {
           </p>
 
           <div className="relative flex items-center gap-4">
-            <DemoRequest size="lg" />
+            <ButtonLink href="?modo=registro" variant="accent" size="lg">
+              Registrarme gratis
+            </ButtonLink>
             <span className="hidden items-center gap-1.5 text-sm font-medium text-text-muted lg:inline-flex">
-              Sin tarjeta · demo guiada
+              Sin tarjeta · empezá en minutos
               <ArrowRight className="size-4 text-brand-orange" />
             </span>
           </div>
@@ -112,35 +139,45 @@ export default async function IngresarPage(): Promise<React.ReactElement> {
           </div>
         </div>
 
-        {/* Columna derecha (30%): inicio de sesión para clientes existentes */}
+        {/* Columna derecha (30%): login o registro, según ?modo */}
         <div className="flex min-h-0 flex-col items-center justify-center gap-3 overflow-hidden border-l border-border bg-surface/75 px-4 py-4 backdrop-blur-xl">
           <div className="w-full max-w-sm">
-            <p className="mb-3 text-center text-sm font-semibold text-text-heading">
-              ¿Ya sos cliente?
-            </p>
-            <SignIn
-              routing="hash"
-              fallbackRedirectUrl="/dashboard"
-              appearance={{
-                variables: {
-                  colorPrimary: "#008e97",
-                  fontSizeBase: "0.8125rem",
-                  spacingUnit: "0.85rem",
-                  borderRadius: "10px",
-                },
-                elements: {
-                  rootBox: "w-full",
-                  cardBox: "w-full shadow-[var(--shadow-md)]",
-                  card: "w-full",
-                  footer: "hidden",
-                  footerAction: "hidden",
-                },
-              }}
-            />
-            <div className="mt-3 flex items-center justify-center gap-2 text-xs text-text-muted">
-              <span>¿Todavía no tenés cuenta?</span>
-              <DemoRequest />
+            <div className="mb-3 flex items-center justify-center gap-1 rounded-[var(--radius-md)] bg-surface p-1 text-xs font-medium">
+              <a
+                href="?modo=login"
+                className={`flex-1 rounded-[var(--radius-sm)] py-1.5 text-center transition-colors ${
+                  esRegistro
+                    ? "text-text-muted hover:text-text"
+                    : "bg-surface-elevated text-text shadow-[var(--shadow-sm)]"
+                }`}
+              >
+                Iniciar sesión
+              </a>
+              <a
+                href="?modo=registro"
+                className={`flex-1 rounded-[var(--radius-sm)] py-1.5 text-center transition-colors ${
+                  esRegistro
+                    ? "bg-surface-elevated text-text shadow-[var(--shadow-sm)]"
+                    : "text-text-muted hover:text-text"
+                }`}
+              >
+                Crear cuenta
+              </a>
             </div>
+
+            {esRegistro ? (
+              <SignUp
+                routing="hash"
+                fallbackRedirectUrl="/dashboard"
+                appearance={clerkAppearance}
+              />
+            ) : (
+              <SignIn
+                routing="hash"
+                fallbackRedirectUrl="/dashboard"
+                appearance={clerkAppearance}
+              />
+            )}
           </div>
         </div>
       </main>

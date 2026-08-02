@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { LogIn } from "lucide-react";
-import { DemoRequest } from "@cotizaai/ui";
+import { ButtonLink } from "@cotizaai/ui";
 
 const sections: Array<{ href: string; label: string }> = [
   { href: "#como-funciona", label: "Cómo funciona" },
@@ -11,7 +11,7 @@ const sections: Array<{ href: string; label: string }> = [
 
 /**
  * Nav sticky de la página de marketing: anclas a secciones + "Iniciar sesión"
- * (→ /ingresar) + CTA "Solicitar demo". Translúcido con blur sobre el hero.
+ * (→ /ingresar) + CTA "Registrate gratis". Translúcido con blur sobre el hero.
  */
 export function MarketingNav(): React.ReactElement {
   return (
@@ -42,7 +42,12 @@ export function MarketingNav(): React.ReactElement {
             <LogIn className="size-4" />
             Iniciar sesión
           </a>
-          <DemoRequest />
+          <ButtonLink
+            href={`${process.env.NEXT_PUBLIC_APP_URL}/ingresar?modo=registro`}
+            variant="accent"
+          >
+            Registrate gratis
+          </ButtonLink>
         </div>
       </div>
     </header>
