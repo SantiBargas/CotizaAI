@@ -1,0 +1,10 @@
+@import "tailwindcss";
+@import "@cotizaai/ui/theme.css";
+@source "../../../../packages/ui/src";
+
+/* Clerk: sin alta self-serve — ocultar el footer del card de sign-in
+   ("Don't have an account? Sign up" + badge "Secured by Clerk"). */
+.cl-footer,
+.cl-footerAction {
+  display: none !important;
+}

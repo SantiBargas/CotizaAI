@@ -1,50 +1,18 @@
 {
   "name": "cotizaai",
-  "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@11.6.1",
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:push": "prisma db push",
-    "prisma:studio": "prisma studio",
-    "db:keep-alive": "node scripts/keep-supabase-alive.mjs",
-    "test:presupuesto": "tsx scripts/test-presupuesto.ts",
-    "embeddings:backfill": "tsx scripts/backfill-embeddings.ts",
-    "postinstall": "prisma generate"
-  },
-  "dependencies": {
-    "@clerk/nextjs": "^7.4.3",
-    "@hello-pangea/dnd": "18.0.1",
-    "@prisma/adapter-pg": "^7.8.0",
-    "@prisma/client": "^7.8.0",
-    "@react-pdf/renderer": "^4.5.1",
-    "docx": "^9.7.1",
-    "exceljs": "^4.4.0",
-    "lucide-react": "^1.17.0",
-    "mammoth": "^1.12.0",
-    "next": "16.2.7",
-    "pg": "^8.21.0",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "unpdf": "^1.6.2",
-    "zod": "^4.4.3"
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "prisma:generate": "npm run prisma:generate -w apps/app",
+    "prisma:migrate": "npm run prisma:migrate -w apps/app",
+    "prisma:push": "npm run prisma:push -w apps/app",
+    "prisma:studio": "npm run prisma:studio -w apps/app"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/pg": "^8.20.0",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "dotenv": "^16.6.1",
-    "eslint": "^9",
-    "eslint-config-next": "16.2.7",
-    "prisma": "^7.8.0",
-    "tailwindcss": "^4",
-    "tsx": "4.22.4",
-    "typescript": "^5"
+    "turbo": "^2.5.0"
   }
 }
