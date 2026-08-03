@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { apiError, requireTenantContext } from "@/lib/api";
 import {
@@ -38,6 +39,8 @@ export async function DELETE(): Promise<NextResponse> {
       action: "INTEGRATION_DISCONNECTED",
       payload: { provider: "GOOGLE_DRIVE" },
     });
+    revalidatePath("/configuracion");
+    revalidatePath("/historicos");
     return NextResponse.json({ ok: true });
   } catch (err) {
     return apiError(err);

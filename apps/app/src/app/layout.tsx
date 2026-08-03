@@ -25,7 +25,11 @@ export default async function RootLayout({
   const theme = cookieStore.get("theme")?.value === "dark" ? "dark" : "light";
 
   return (
-    <ClerkProvider signInUrl="/ingresar" signUpUrl="/ingresar?modo=registro">
+    <ClerkProvider
+      signInUrl="/ingresar"
+      signUpUrl="/ingresar?modo=registro"
+      afterSignOutUrl="/ingresar"
+    >
       <html
         lang="es"
         data-theme={theme}

@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import {
   apiError,
@@ -69,6 +70,7 @@ export async function PUT(
       });
     });
 
+    revalidatePath("/formatos");
     return NextResponse.json({ template });
   } catch (err) {
     return apiError(err);
@@ -88,6 +90,7 @@ export async function DELETE(
     if (!existing) return notFound("Plantilla no encontrada.");
 
     await prisma.budgetTemplate.delete({ where: { id } });
+    revalidatePath("/formatos");
     return NextResponse.json({ ok: true });
   } catch (err) {
     return apiError(err);

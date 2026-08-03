@@ -274,6 +274,14 @@ del cliente. Aislamiento de embeddings garantizado en la query vectorial.
 - Validación de env con Zod.
 - Trazabilidad: guardar qué históricos usó cada generación.
 
+**Ya portado (2026-08-03):**
+- `lib/prisma.ts`: pool del adapter `PrismaPg` con `max`/`idleTimeoutMillis`/
+  `connectionTimeoutMillis` + logging de `onPoolError`/`onConnectionError`
+  (Prisma 7 delega el pool al adapter, no al motor — sin timeout explícito,
+  `node-postgres` cuelga indefinido con el pool saturado en vez de fallar
+  rápido). Más el `Proxy` anti-stale-client de dev (chequea el delegate de
+  `tenantIntegration`, el modelo agregado más recientemente en el schema).
+
 **Generalizar para multi-tenant:**
 - `tenantId` en todo; aislamiento de embeddings.
 - Rubro/perfil **configurable por tenant** (reemplaza disciplinas hardcodeadas).

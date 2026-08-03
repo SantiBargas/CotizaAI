@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { apiError, notFound, requireTenantContext } from "@/lib/api";
 import { reindexHistoricalBudget } from "@/lib/rag/indexing";
@@ -38,6 +39,9 @@ export async function POST(
       payload: { budgetId: id, ...result },
     });
 
+    revalidatePath("/historicos");
+    revalidatePath(`/historicos/${id}`);
+    revalidatePath("/dashboard");
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     return apiError(err);

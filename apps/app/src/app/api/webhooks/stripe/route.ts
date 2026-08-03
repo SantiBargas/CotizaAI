@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import crypto from "node:crypto";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getEnv } from "@/lib/env";
 import { logAudit } from "@/lib/audit";
@@ -141,6 +142,8 @@ async function syncSubscription(
     action: "SUBSCRIPTION_CHANGED",
     payload: { plan, status, stripeSubscriptionId: obj.id },
   });
+  revalidatePath("/configuracion");
+  revalidatePath("/dashboard");
 }
 
 async function cancelSubscription(
@@ -159,6 +162,8 @@ async function cancelSubscription(
     action: "SUBSCRIPTION_CHANGED",
     payload: { status: "CANCELED", stripeSubscriptionId: obj.id },
   });
+  revalidatePath("/configuracion");
+  revalidatePath("/dashboard");
 }
 
 async function linkCheckoutSession(
@@ -179,6 +184,8 @@ async function linkCheckoutSession(
       stripeSubscriptionId: obj.subscription ?? null,
     },
   });
+  revalidatePath("/configuracion");
+  revalidatePath("/dashboard");
 }
 
 /** Resuelve el tenant por metadata.tenantId o, si no está, por stripeCustomerId ya guardado. */

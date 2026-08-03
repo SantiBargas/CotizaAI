@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { apiError, badRequest, requireTenantContext } from "@/lib/api";
 import {
@@ -69,6 +70,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       source: "google-drive",
     });
 
+    revalidatePath("/historicos");
+    revalidatePath("/dashboard");
     return NextResponse.json({ budget }, { status: 201 });
   } catch (err) {
     if (err instanceof EmptyPdfTextError) return badRequest(err.message);

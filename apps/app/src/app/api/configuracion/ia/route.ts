@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { apiError, badRequest, requireTenantContext, requireTenantRole } from "@/lib/api";
@@ -108,6 +109,7 @@ export async function PUT(req: NextRequest): Promise<NextResponse> {
       },
     });
 
+    revalidatePath("/configuracion");
     return NextResponse.json({
       config: {
         enabledProviders: config.enabledProviders,

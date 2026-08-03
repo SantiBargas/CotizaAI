@@ -1,44 +1,13 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
 import { ThemeToggle, ToastProvider } from "@cotizaai/ui";
 import { AppNav } from "@/features/nav/app-nav";
-import { UsageLimitBanner } from "@/features/billing/usage-limit-banner";
+import { SectionPrefetch } from "@/features/nav/section-prefetch";
+import { OrgSwitchRevalidate } from "@/features/nav/org-switch-revalidate";
+import { UsageLimitBannerAsync } from "@/features/billing/usage-limit-banner-async";
 import { getCurrentTenant } from "@/lib/tenant";
-import { getTenantUsageSummary } from "@/lib/billing/limits";
-import { PLANS } from "@/lib/billing/plans";
-
-const WARNING_THRESHOLD = 0.8;
-
-function usageWarningMessages(
-  summary: Awaited<ReturnType<typeof getTenantUsageSummary>>,
-): string[] {
-  const planLabel = PLANS[summary.plan].label;
-  const metrics: Array<{ label: string; used: number; limit: number }> = [
-    {
-      label: "generaciones mensuales",
-      used: summary.generationsUsed,
-      limit: summary.generationsLimit,
-    },
-    {
-      label: "históricos cargados",
-      used: summary.historicalsUsed,
-      limit: summary.historicalsLimit,
-    },
-    {
-      label: "miembros de la organización",
-      used: summary.membersUsed,
-      limit: summary.membersLimit,
-    },
-  ];
-
-  return metrics
-    .filter((m) => m.limit > 0 && m.used / m.limit >= WARNING_THRESHOLD)
-    .map((m) => {
-      const pct = Math.round((m.used / m.limit) * 100);
-      return `Estás usando el ${pct}% de tus ${m.label} del plan ${planLabel}. Considerá upgradear.`;
-    });
-}
 
 export default async function AppLayout({
   children,
@@ -48,12 +17,11 @@ export default async function AppLayout({
     cookieStore.get("theme")?.value === "dark" ? "dark" : "light";
 
   const tenant = await getCurrentTenant();
-  const usageMessages = tenant
-    ? usageWarningMessages(await getTenantUsageSummary(tenant.id))
-    : [];
 
   return (
     <ToastProvider>
+      <SectionPrefetch />
+      <OrgSwitchRevalidate />
       <div className="relative flex min-h-screen flex-col bg-surface">
         <div
           className="pointer-events-none fixed inset-x-0 top-0 -z-10 h-[480px] bg-gradient-to-b from-brand-aqua/10 via-brand-blue/5 to-transparent"
@@ -97,7 +65,11 @@ export default async function AppLayout({
             </div>
           </div>
         </header>
-        <UsageLimitBanner messages={usageMessages} />
+        {tenant && (
+          <Suspense fallback={null}>
+            <UsageLimitBannerAsync tenantId={tenant.id} />
+          </Suspense>
+        )}
         <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-8">
           {children}
         </main>

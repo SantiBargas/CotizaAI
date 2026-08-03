@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { apiError, badRequest, requireTenantContext } from "@/lib/api";
 import { ingestPdfHistorical, EmptyPdfTextError } from "@/lib/pdf/ingest";
 import { checkHistoricalLimit } from "@/lib/billing/limits";
@@ -67,6 +68,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       source: "upload",
     });
 
+    revalidatePath("/historicos");
+    revalidatePath("/dashboard");
     return NextResponse.json({ budget }, { status: 201 });
   } catch (err) {
     if (err instanceof EmptyPdfTextError) return badRequest(err.message);

@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { apiError, badRequest, requireTenantContext } from "@/lib/api";
@@ -63,6 +64,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         createdByAI: false,
       },
     });
+    revalidatePath("/historicos");
+    revalidatePath("/dashboard");
     return NextResponse.json({ budget }, { status: 201 });
   } catch (err) {
     return apiError(err);

@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { apiError, badRequest, requireTenantContext } from "@/lib/api";
 import { budgetTemplateInputSchema } from "@/types/budget-template";
@@ -50,6 +51,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
     });
 
+    revalidatePath("/formatos");
     return NextResponse.json({ template }, { status: 201 });
   } catch (err) {
     return apiError(err);

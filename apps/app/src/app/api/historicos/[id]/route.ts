@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import {
@@ -79,6 +80,9 @@ export async function PATCH(
         ...(d.status !== undefined && { status: d.status }),
       },
     });
+    revalidatePath("/historicos");
+    revalidatePath(`/historicos/${id}`);
+    revalidatePath("/dashboard");
     return NextResponse.json({ budget });
   } catch (err) {
     return apiError(err);
@@ -107,6 +111,8 @@ export async function DELETE(
         console.warn("No se pudo borrar el PDF del storage:", err);
       }
     }
+    revalidatePath("/historicos");
+    revalidatePath("/dashboard");
     return NextResponse.json({ ok: true });
   } catch (err) {
     return apiError(err);

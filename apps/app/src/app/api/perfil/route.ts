@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { apiError, badRequest, requireTenantContext } from "@/lib/api";
@@ -73,6 +74,8 @@ export async function PUT(req: NextRequest): Promise<NextResponse> {
       action: "PROFILE_UPDATED",
     });
 
+    revalidatePath("/perfil");
+    revalidatePath("/dashboard");
     return NextResponse.json({ profile });
   } catch (err) {
     return apiError(err);
