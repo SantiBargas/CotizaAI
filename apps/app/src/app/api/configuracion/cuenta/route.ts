@@ -1,24 +1,34 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
+import { clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, badRequest, requireTenantRole } from "@/lib/api";
 import { logAudit } from "@/lib/audit";
 
 /**
- * DELETE /api/configuracion/cuenta — borra el tenant completo (I.3: política
- * de borrado de datos). Solo OWNER. Requiere `{ confirmacion: string }` en el
- * body, que tiene que ser EXACTAMENTE el nombre del tenant (`tenant.name`).
+ * DELETE /api/configuracion/cuenta — borra la organización completa (I.3:
+ * política de borrado de datos). Solo OWNER. Requiere `{ confirmacion: string }`
+ * en el body, que tiene que ser EXACTAMENTE el nombre del tenant (`tenant.name`).
+ *
+ * Borra primero la organización en Clerk y recién después el Tenant local:
+ * si lo hiciéramos al revés, cualquier miembro podría volver a seleccionar
+ * la organización (que seguiría existiendo en Clerk) y el sync automático
+ * de src/lib/tenant.ts la resucitaría sola. En este orden, si el borrado en
+ * Clerk falla no tocamos nada local; si Clerk borra bien pero el borrado
+ * local falla después, queda una fila huérfana sin datos sensibles (se
+ * puede reintentar el DELETE, `clerkOrgId` ya no existe en Clerk).
+ *
+ * Nota: si la organización se borra por otro camino (el selector nativo de
+ * Clerk, o el dashboard de Clerk) en vez de este endpoint, la limpieza local
+ * corre por cuenta del webhook `organization.deleted` en
+ * api/webhooks/clerk/route.ts — que en desarrollo local no puede dispararse
+ * porque Clerk no puede alcanzar `localhost`. En producción sí llega.
  *
  * Las cascadas (`onDelete: Cascade`) ya están configuradas en
  * prisma/schema.prisma para Membership, CompanyProfile, TenantAiConfig,
  * HistoricalBudget, BudgetChunk, IncompatibleFile, GeneratedBudget,
  * BudgetTemplate, UsageRecord, Subscription, TenantIntegration y AuditLog —
  * borrar el Tenant se lleva todo lo demás en una sola operación.
- *
- * NOTA UX: esta tarea deja el endpoint funcional pero SIN botón en la UI.
- * Un borrado de cuenta necesita su propio flujo de confirmación (modal,
- * doble-check, posible delay/cooldown) que queda fuera de alcance acá —
- * agregar esa UI en una tarea aparte antes de exponerlo a usuarios finales.
  */
 const bodySchema = z.object({
   confirmacion: z.string().min(1),
@@ -65,6 +75,20 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
         membershipsCount,
       },
     });
+
+    const client = await clerkClient();
+    try {
+      await client.organizations.deleteOrganization(tenant.clerkOrgId);
+    } catch (err) {
+      console.error("No se pudo borrar la organización en Clerk:", err);
+      return NextResponse.json(
+        {
+          error:
+            "No se pudo borrar la organización en Clerk. Probá de nuevo en unos minutos.",
+        },
+        { status: 502 },
+      );
+    }
 
     await prisma.tenant.delete({ where: { id: tenant.id } });
 

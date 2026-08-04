@@ -16,6 +16,7 @@ import { Badge, Card, CardTitle } from "@cotizaai/ui";
 import { InflacionSync } from "@/features/configuracion/inflacion-sync";
 import { UpgradePlanButton } from "@/features/configuracion/upgrade-plan";
 import { AiProvidersPanel } from "@/features/configuracion/ai-providers-panel";
+import { DeleteOrganization } from "@/features/configuracion/delete-organization";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +69,7 @@ export default async function ConfiguracionPage(): Promise<React.ReactElement> {
     : undefined;
   const canEditAiConfig =
     currentMembership?.role === "OWNER" || currentMembership?.role === "ADMIN";
+  const isOwner = currentMembership?.role === "OWNER";
 
   const health = checkAllProvidersHealth();
   const enabledProviders = (aiConfig?.enabledProviders ?? []).filter(
@@ -259,6 +261,20 @@ export default async function ConfiguracionPage(): Promise<React.ReactElement> {
             en la generación.
           </p>
         </Card>
+
+        {isOwner && (
+          <Card className="flex flex-col gap-4 border-error/30 lg:col-span-2">
+            <CardTitle>Zona de peligro</CardTitle>
+            <p className="text-sm text-text-muted">
+              Borrar la organización elimina todo lo cargado en {tenant.name}{" "}
+              (históricos, presupuestos, formatos, miembros) de forma
+              permanente. No se puede deshacer.
+            </p>
+            <div>
+              <DeleteOrganization tenantName={tenant.name} />
+            </div>
+          </Card>
+        )}
       </div>
     </div>
   );

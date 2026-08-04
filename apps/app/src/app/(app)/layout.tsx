@@ -54,9 +54,15 @@ export default async function AppLayout({
                   afterSelectOrganizationUrl="/dashboard"
                   appearance={{
                     elements: {
-                      // El trigger renderiza texto negro por default → token del tema
+                      // El trigger y el nombre de la organización renderizan
+                      // texto negro fijo por default — no se ve en modo
+                      // oscuro. [&_*] solo no alcanza (Clerk tiene más
+                      // especificidad), forzamos con !important.
                       organizationSwitcherTrigger:
-                        "text-text hover:text-text [&_*]:text-inherit",
+                        "!text-text hover:!text-text [&_*]:!text-inherit",
+                      organizationPreviewMainIdentifier: "!text-text",
+                      organizationPreviewSecondaryIdentifier: "!text-text-muted",
+                      organizationSwitcherTriggerIcon: "!text-text-muted",
                     },
                   }}
                 />

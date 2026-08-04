@@ -3,7 +3,8 @@
     "allow": [
       "Bash(curl -sS -o /dev/null -w \"HTTP %{http_code}\\\\n\" -H \"Authorization: Bearer sk_test_6SxSy4OYplsn84BqRnJyku8UnFKeMgozHXO0BuXfDx\" \"https://api.clerk.com/v1/organizations?limit=1\")",
       "Bash(curl -sS -H \"Authorization: Bearer sk_test_6SxSy4OYplsn84BqRnJyku8UnFKeMgozHXO0BuXfDx\" \"https://api.clerk.com/v1/organizations?limit=1\")",
-      "Bash(curl -sS -H \"Authorization: Bearer sk_test_6SxSy4OYplsn84BqRnJyku8UnFKeMgozHXO0BuXfDx\" \"https://api.clerk.com/v1/instance\")"
+      "Bash(curl -sS -H \"Authorization: Bearer sk_test_6SxSy4OYplsn84BqRnJyku8UnFKeMgozHXO0BuXfDx\" \"https://api.clerk.com/v1/instance\")",
+      "Bash(npx eslint *)"
     ]
   }
 }

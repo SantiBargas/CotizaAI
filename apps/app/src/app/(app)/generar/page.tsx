@@ -30,7 +30,7 @@ export default async function GenerarPage(): Promise<React.ReactElement> {
     currentUser(),
     prisma.companyProfile.findUnique({
       where: { tenantId: tenant.id },
-      select: { industry: true },
+      select: { industry: true, industryPrompt: true },
     }),
     checkGenerationLimit(tenant.id),
     availableProvidersForTenant(tenant.id),
@@ -49,6 +49,7 @@ export default async function GenerarPage(): Promise<React.ReactElement> {
       nombre={user?.firstName ?? ""}
       frase={frase}
       industry={profile?.industry ?? null}
+      industryPrompt={profile?.industryPrompt ?? null}
       usage={{ used: genLimit.used, limit: genLimit.limit }}
       providers={providers}
     />

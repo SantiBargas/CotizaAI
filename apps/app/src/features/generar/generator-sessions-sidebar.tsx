@@ -1,8 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Trash2 } from "lucide-react";
-import { Button, Spinner, useToast } from "@cotizaai/ui";
+import {
+  Eye,
+  Lightbulb,
+  MessageSquarePlus,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+  SquareArrowOutUpRight,
+  Trash2,
+} from "lucide-react";
+import { Button, Spinner, cn, useToast } from "@cotizaai/ui";
 import { formatRelativeTime } from "@/lib/format";
 
 export interface SessionSummary {
@@ -35,6 +44,36 @@ export function ToggleSessionsSidebarButton({
   );
 }
 
+/** Item de menú compacto del sidebar (ícono + label), estilo ITZA. */
+function MenuItemSidebar({
+  icon,
+  label,
+  onClick,
+  active,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "flex w-full items-center gap-2.5 rounded-[var(--radius-md)] px-2 py-1.5 text-left text-xs font-semibold transition-colors",
+        active
+          ? "bg-primary/10 text-primary"
+          : "text-text hover:bg-surface",
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
 /**
  * Sidebar de historial de conversaciones del generador (tipo ChatGPT/Claude).
  * Carga la lista al montar y se actualiza en vivo cuando el padre informa que
@@ -47,6 +86,11 @@ export function GeneratorSessionsSidebar({
   onSelectSession,
   onNewChat,
   onSessionDeleted,
+  onAbrirPromptExterno,
+  onAbrirReglasIa,
+  onAbrirAyuda,
+  opcionesAbiertas,
+  onToggleOpciones,
 }: {
   open: boolean;
   currentSessionId: string | null;
@@ -54,6 +98,11 @@ export function GeneratorSessionsSidebar({
   onSelectSession: (id: string) => void;
   onNewChat: () => void;
   onSessionDeleted: (id: string) => void;
+  onAbrirPromptExterno: () => void;
+  onAbrirReglasIa: () => void;
+  onAbrirAyuda: () => void;
+  opcionesAbiertas: boolean;
+  onToggleOpciones: () => void;
 }): React.ReactElement | null {
   const { toast } = useToast();
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
@@ -92,16 +141,43 @@ export function GeneratorSessionsSidebar({
     }
   }
 
-  if (!open) return null;
-
   return (
-    <aside className="flex h-full w-56 shrink-0 flex-col gap-2 overflow-hidden border-r border-border pr-3">
+    <aside
+      className={cn(
+        "flex h-full shrink-0 flex-col gap-2 overflow-hidden pt-10 transition-[width] duration-300 ease-in-out",
+        open ? "w-56 border-r border-border pr-3" : "w-0 border-r-0 pr-0",
+      )}
+    >
       <Button variant="secondary" size="sm" onClick={onNewChat} className="justify-start">
         <MessageSquarePlus className="size-4" />
         Nuevo chat
       </Button>
 
-      <div className="mt-2 flex-1 overflow-y-auto">
+      <div className="flex flex-col gap-0.5 border-b border-border pb-2">
+        <MenuItemSidebar
+          icon={<SquareArrowOutUpRight className="size-3.5 shrink-0" />}
+          label="Prompt IA"
+          onClick={onAbrirPromptExterno}
+        />
+        <MenuItemSidebar
+          icon={<Settings className="size-3.5 shrink-0" />}
+          label="Opciones avanzadas"
+          active={opcionesAbiertas}
+          onClick={onToggleOpciones}
+        />
+        <MenuItemSidebar
+          icon={<Eye className="size-3.5 shrink-0" />}
+          label="Reglas IA"
+          onClick={onAbrirReglasIa}
+        />
+        <MenuItemSidebar
+          icon={<Lightbulb className="size-3.5 shrink-0" />}
+          label="Ayuda"
+          onClick={onAbrirAyuda}
+        />
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
         <p className="px-1 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-text-muted">
           Recientes
         </p>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowUp,
+  ChevronDown,
   CircleCheck,
   ExternalLink,
   FileJson,
@@ -17,7 +18,7 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
-import { Badge, Button, cn, Select } from "@cotizaai/ui";
+import { Badge, Button, cn } from "@cotizaai/ui";
 import { formatMoney } from "@/lib/format";
 import {
   generatedBudgetPayloadSchema,
@@ -30,6 +31,11 @@ import {
   ToggleSessionsSidebarButton,
   type SessionSummary,
 } from "@/features/generar/generator-sessions-sidebar";
+import {
+  AyudaModal,
+  PromptExternoModal,
+  ReglasIaModal,
+} from "@/features/generar/generar-help-modals";
 
 /** Resultado de una generación, tal como lo devuelve POST /api/generar. */
 interface GenerationResult {
@@ -130,6 +136,7 @@ export interface GenerarChatProps {
   nombre: string;
   frase: string;
   industry: string | null;
+  industryPrompt: string | null;
   usage: { used: number; limit: number };
   providers: Array<{ id: string; label: string }>;
 }
@@ -161,10 +168,14 @@ export function GenerarChat({
   nombre,
   frase,
   industry,
+  industryPrompt,
   usage,
   providers,
 }: GenerarChatProps): React.ReactElement {
   const router = useRouter();
+  const [reglasOpen, setReglasOpen] = useState(false);
+  const [promptExternoOpen, setPromptExternoOpen] = useState(false);
+  const [ayudaOpen, setAyudaOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [nivel, setNivel] = useState<NivelDetalle>("normal");
@@ -180,7 +191,8 @@ export function GenerarChat({
   );
   const [secciones, setSecciones] = useState<string[]>([]);
   const [seccionesOpen, setSeccionesOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
+  const [adjuntarInfoOpen, setAdjuntarInfoOpen] = useState(false);
+  const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const [jsonPegado, setJsonPegado] = useState("");
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -188,6 +200,25 @@ export function GenerarChat({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const jsonFileRef = useRef<HTMLInputElement>(null);
+  const adjuntarMenuRef = useRef<HTMLDivElement>(null);
+  const providerMenuRef = useRef<HTMLDivElement>(null);
+
+  // Cierra el aviso de "adjuntar archivos" y el menú de proveedor al
+  // clickear afuera (mismo patrón que los menús flotantes de ITZA).
+  useEffect(() => {
+    if (!adjuntarInfoOpen && !providerMenuOpen) return;
+    function onClickOutside(e: MouseEvent): void {
+      const target = e.target as Node;
+      if (!adjuntarMenuRef.current?.contains(target)) {
+        setAdjuntarInfoOpen(false);
+      }
+      if (!providerMenuRef.current?.contains(target)) {
+        setProviderMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [adjuntarInfoOpen, providerMenuOpen]);
 
   const remaining = Math.max(0, usage.limit - used);
   const empty = messages.length === 0;
@@ -283,14 +314,6 @@ export function GenerarChat({
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length]);
-
-  const sugerencias: string[] = [
-    industry
-      ? `Presupuesto de ${industry} para un cliente nuevo: incluí materiales, mano de obra y plazos de entrega.`
-      : "Presupuesto para instalación eléctrica completa de una casa de 120 m², con materiales y mano de obra.",
-    "Cotización urgente con entrega en 15 días: detallá etapas, forma de pago y validez de la oferta.",
-    "Rehacé el último trabajo que cotizamos pero para el doble de superficie, con precios actualizados a hoy.",
-  ];
 
   async function handleSend(rawText?: string): Promise<void> {
     const text = (rawText ?? input).trim();
@@ -463,7 +486,6 @@ export function GenerarChat({
         content: b.content,
         ragSourceIds: [],
       });
-      setImportOpen(false);
       setJsonPegado("");
     } catch (err) {
       setImportError(
@@ -477,16 +499,10 @@ export function GenerarChat({
   function onArchivoJsonElegido(file: File): void {
     const reader = new FileReader();
     reader.onload = () => {
-      setImportOpen(true);
       void handleImportJson(String(reader.result ?? ""));
     };
     reader.onerror = () => setImportError("No se pudo leer el archivo.");
     reader.readAsText(file);
-  }
-
-  function usarSugerencia(s: string): void {
-    setInput(s);
-    textareaRef.current?.focus();
   }
 
   const lastResult = [...messages]
@@ -496,389 +512,347 @@ export function GenerarChat({
         m.role === "assistant" && m.state === "done",
     );
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* Barra superior del generador */}
-      <div className="flex shrink-0 items-center justify-between gap-3 pb-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <ToggleSessionsSidebarButton
-            open={sidebarOpen}
-            onClick={() => setSidebarOpen((o) => !o)}
-          />
-          <h1 className="shrink-0 text-xl font-bold tracking-tight text-text-heading">
-            Generar
-          </h1>
-          {lastResult && (
-            <span
-              className="hidden min-w-0 items-center gap-1.5 truncate rounded-[var(--radius-full)] border border-primary/30 bg-primary/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-primary sm:flex"
-              title={`Se usó ${lastResult.result.model} · ${RAG_LABELS[lastResult.result.ragMode]}`}
+  // Compositor: mismo bloque tanto en el estado vacío (centrado, junto a la
+  // frase de bienvenida) como una vez que hay mensajes (anclado abajo).
+  const composerBody = (
+    <>
+      <div className="rounded-[1.4rem] border border-border bg-surface-elevated shadow-[var(--shadow-md)] transition-colors focus-within:border-primary/60">
+        <div className="flex items-center gap-2 px-4 py-3">
+          <div className="relative shrink-0" ref={adjuntarMenuRef}>
+            <button
+              type="button"
+              onClick={() => setAdjuntarInfoOpen((o) => !o)}
+              disabled={generating}
+              aria-expanded={adjuntarInfoOpen}
+              aria-label="Info sobre adjuntar archivos"
+              title="Adjuntar archivos — próximamente"
+              className="flex size-9 items-center justify-center rounded-full border border-border text-text-muted transition-colors hover:bg-surface hover:text-text disabled:opacity-45"
             >
-              <span
-                className="size-1.5 shrink-0 animate-pulse rounded-full bg-primary"
-                aria-hidden
-              />
-              <span className="truncate">
-                Se usó: {lastResult.result.model} ·{" "}
-                {RAG_LABELS[lastResult.result.ragMode]}
-              </span>
-            </span>
-          )}
-        </div>
-        {!empty && (
-          <Button
-            variant="secondary"
-            size="sm"
+              <Plus className="size-4" />
+            </button>
+            {adjuntarInfoOpen && (
+              <div
+                role="dialog"
+                className="absolute bottom-full left-0 z-20 mb-2 w-[min(18rem,calc(100vw-2rem))] overflow-hidden rounded-[var(--radius-lg)] border border-border bg-surface-elevated shadow-[var(--shadow-lg)]"
+              >
+                <p className="px-3 py-2.5 text-[11px] leading-relaxed text-text-muted">
+                  <strong className="text-text-heading">
+                    Adjuntar archivos — próximamente.
+                  </strong>{" "}
+                  Se omite para cuidar el consumo de tokens de los planes
+                  gratuitos de IA. Se habilitará cuando tengamos un plan pago.
+                </p>
+              </div>
+            )}
+          </div>
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void handleSend();
+              }
+            }}
+            rows={1}
             disabled={generating}
-            onClick={handleNewChat}
+            placeholder={
+              industry
+                ? `Describí el trabajo de ${industry} a cotizar…`
+                : "Describí el trabajo a cotizar…"
+            }
+            className="max-h-40 min-h-6 flex-1 resize-none bg-transparent text-sm leading-relaxed text-text placeholder:text-text-muted focus:outline-none disabled:opacity-60"
+          />
+          <button
+            type="button"
+            onClick={() => void handleSend()}
+            disabled={generating || input.trim().length < 10}
+            aria-label="Generar presupuesto"
+            title="Generar (Enter)"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-fg shadow-[var(--shadow-sm)] transition-all hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <Plus className="size-4" />
-            Nueva conversación
-          </Button>
+            {generating ? (
+              <span className="flex items-center gap-0.5" aria-hidden>
+                {[0, 150, 300].map((d) => (
+                  <span
+                    key={d}
+                    className="size-1 animate-bounce rounded-full bg-primary-fg"
+                    style={{ animationDelay: `${d}ms` }}
+                  />
+                ))}
+              </span>
+            ) : (
+              <ArrowUp className="size-4" />
+            )}
+          </button>
+        </div>
+
+        {seccionesOpen && (
+          <div className="flex flex-col gap-2.5 border-t border-border/60 px-4 pb-3 pt-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div
+                className="flex items-center gap-1"
+                role="radiogroup"
+                aria-label="Nivel de detalle"
+              >
+                {NIVELES.map((n) => (
+                  <button
+                    key={n.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={nivel === n.id}
+                    onClick={() => setNivel(n.id)}
+                    disabled={generating}
+                    className={cn(
+                      "rounded-[var(--radius-full)] px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                      nivel === n.id
+                        ? "bg-primary/10 text-primary"
+                        : "text-text-muted hover:bg-surface hover:text-text",
+                    )}
+                  >
+                    {n.label}
+                  </button>
+                ))}
+              </div>
+              <span
+                className={cn(
+                  "text-[11px] tabular-nums",
+                  remaining === 0
+                    ? "font-semibold text-error"
+                    : "text-text-muted",
+                )}
+              >
+                {remaining === 0
+                  ? "Sin generaciones — mejorá tu plan"
+                  : `${remaining} generaciones disponibles este mes`}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-[10px] font-bold uppercase tracking-widest text-text-muted">
+                Incluir secciones:
+              </span>
+              {SECCIONES_PRESUPUESTO.map((s) => {
+                const active = secciones.includes(s);
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => toggleSeccion(s)}
+                    aria-pressed={active}
+                    className={cn(
+                      "rounded-[var(--radius-full)] border px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                      active
+                        ? "border-[var(--brand-orange)]/50 bg-[var(--brand-orange)]/10 text-[var(--brand-orange)]"
+                        : "border-border text-text-muted hover:border-[var(--brand-orange)]/40 hover:text-text",
+                    )}
+                  >
+                    {active ? "✓ " : ""}
+                    {s}
+                  </button>
+                );
+              })}
+              {secciones.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSecciones([])}
+                  className="ml-1 text-[10px] font-semibold text-text-muted underline-offset-2 hover:text-error hover:underline"
+                >
+                  limpiar
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Selector de proveedor: 2da fila dentro del mismo contenedor del
+            compositor, no un elemento aparte. Dropdown propio (no <select>
+            nativo) para poder mostrar el punto de estado y el chevron,
+            mismo patrón que el menú de proveedor de ITZA. */}
+        {providers.length > 0 && (
+          <div className="flex justify-center border-t border-border/60 py-2.5">
+          <div className="relative" ref={providerMenuRef}>
+            <button
+              type="button"
+              onClick={() => setProviderMenuOpen((o) => !o)}
+              disabled={generating}
+              aria-expanded={providerMenuOpen}
+              aria-label="Proveedor de IA"
+              title={providers.find((p) => p.id === provider)?.label}
+              className="flex items-center gap-1.5 rounded-[var(--radius-full)] border border-border bg-surface-elevated px-3 py-1.5 text-[11px] font-semibold text-text-muted transition-colors hover:bg-surface disabled:opacity-60"
+            >
+              <span className="size-2 shrink-0 rounded-full bg-success" aria-hidden />
+              <span className="max-w-[12rem] truncate">
+                {providers.find((p) => p.id === provider)?.label ?? ""}
+              </span>
+              <ChevronDown
+                className={cn(
+                  "size-3 shrink-0 transition-transform",
+                  providerMenuOpen && "rotate-180",
+                )}
+              />
+            </button>
+            {providerMenuOpen && (
+              <div className="absolute bottom-full left-1/2 z-20 mb-2 w-56 -translate-x-1/2 overflow-hidden rounded-[var(--radius-lg)] border border-border bg-surface-elevated shadow-[var(--shadow-lg)]">
+                {providers.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      setProvider(p.id);
+                      setProviderMenuOpen(false);
+                    }}
+                    className={cn(
+                      "w-full px-4 py-2.5 text-left text-sm transition-colors",
+                      provider === p.id
+                        ? "bg-primary/10 font-semibold text-primary"
+                        : "text-text hover:bg-surface",
+                    )}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
         )}
       </div>
+    </>
+  );
 
-      <div className="flex min-h-0 flex-1 gap-4">
-        <GeneratorSessionsSidebar
+  return (
+    <div className="relative left-1/2 flex min-h-0 w-screen flex-1 -translate-x-1/2 flex-col px-4 sm:px-6 lg:px-8">
+      {/* Fuera del flujo del sidebar a propósito: así no se corre cuando la
+          barra abre/cierra y se puede togglear sin mover el mouse. */}
+      <div className="absolute left-4 top-0.5 z-10 sm:left-6 lg:left-8">
+        <ToggleSessionsSidebarButton
           open={sidebarOpen}
-          currentSessionId={sessionId}
-          lastSavedSession={lastSavedSession}
-          onSelectSession={(id) => void handleSelectSession(id)}
-          onNewChat={handleNewChat}
-          onSessionDeleted={handleSessionDeleted}
+          onClick={() => setSidebarOpen((o) => !o)}
         />
-        {/* Columna chat */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* Hilo / estado vacío */}
-          <div
-            ref={scrollRef}
-            className={cn(
-              "relative min-h-0 flex-1 overflow-y-auto",
-              empty && "flex items-center justify-center overflow-hidden",
-            )}
-          >
+      </div>
+
+      <div className="origin-top grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-2 xl:items-stretch xl:overflow-hidden xl:[zoom:0.9]">
+        {/* Columna izquierda: historial (si está abierto) + chat. La única que scrollea. */}
+        <div className="flex min-h-0 min-w-0 gap-4 overflow-hidden">
+          <GeneratorSessionsSidebar
+            open={sidebarOpen}
+            currentSessionId={sessionId}
+            lastSavedSession={lastSavedSession}
+            onSelectSession={(id) => void handleSelectSession(id)}
+            onNewChat={handleNewChat}
+            onSessionDeleted={handleSessionDeleted}
+            onAbrirPromptExterno={() => setPromptExternoOpen(true)}
+            onAbrirReglasIa={() => setReglasOpen(true)}
+            onAbrirAyuda={() => setAyudaOpen(true)}
+            opcionesAbiertas={seccionesOpen}
+            onToggleOpciones={() => setSeccionesOpen((o) => !o)}
+          />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pt-4 xl:pr-4">
             {empty ? (
-              <div className="relative flex w-full flex-col items-center px-4 text-center">
+              /* Estado vacío: frase + compositor + selector, agrupados cerca
+                 del tope (no centrados en todo el alto — en pantallas altas
+                 eso dejaba un hueco enorme arriba). */
+              <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-4 text-center">
                 <div
-                  className="pointer-events-none absolute left-1/2 top-1/2 size-[24rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/10 blur-[100px]"
+                  className="pointer-events-none absolute left-1/2 top-1/2 size-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/10 blur-[60px]"
                   aria-hidden
                 />
-                <h2 className="relative bg-gradient-to-r from-brand-aqua via-brand-blue to-brand-orange bg-clip-text text-3xl font-bold tracking-tight text-transparent sm:text-4xl">
+                <h2 className="relative text-balance bg-gradient-to-r from-brand-aqua via-brand-blue to-brand-orange bg-clip-text text-xl font-bold tracking-tight text-transparent sm:text-2xl">
                   {nombre
                     ? frase.replace("{nombre}", nombre)
                     : frase.replace(", {nombre}", "").replace("{nombre}", "")}
                 </h2>
-                <p className="relative mt-3 max-w-xl text-sm leading-6 text-text-muted">
-                  Describí el trabajo a cotizar. Uso tus históricos ajustados
-                  por inflación y el perfil de tu rubro para armar un
-                  presupuesto listo para editar y exportar.
-                </p>
-                <div className="relative mt-8 grid w-full max-w-2xl gap-3 sm:grid-cols-3">
-                  {sugerencias.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => usarSugerencia(s)}
-                      className="group rounded-[var(--radius-lg)] border border-border bg-surface-elevated p-4 text-left text-sm leading-5 text-text shadow-[var(--shadow-sm)] transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-[var(--shadow-md)]"
-                    >
-                      <Sparkles className="mb-2 size-4 text-primary transition-transform group-hover:scale-110" />
-                      {s}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Importar propuesta externa (patrón ITZA): sin gastar tokens */}
-                <div className="relative mt-6 w-full max-w-2xl">
-                  <input
-                    ref={jsonFileRef}
-                    type="file"
-                    accept=".json,application/json"
-                    className="hidden"
-                    aria-hidden
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      e.target.value = "";
-                      if (file) onArchivoJsonElegido(file);
-                    }}
-                  />
-                  <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] text-text-muted">
-                    <button
-                      type="button"
-                      onClick={() => jsonFileRef.current?.click()}
-                      className="inline-flex items-center gap-1.5 rounded-[var(--radius-full)] border border-dashed border-[var(--brand-orange)]/50 bg-[var(--brand-orange)]/5 px-3.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--brand-orange)] transition-colors hover:bg-[var(--brand-orange)]/15"
-                    >
-                      <FileJson className="size-3.5" />
-                      Subir (.json) · cargar propuesta
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setImportOpen((o) => !o)}
-                      className="underline-offset-2 hover:text-text hover:underline"
-                    >
-                      {importOpen ? "ocultar" : "o pegá el JSON acá"}
-                    </button>
-                    <span className="hidden sm:inline">
-                      · sin gastar tokens, se procesa en tu navegador
-                    </span>
-                  </div>
-                  {importOpen && (
-                    <div className="mt-3 flex flex-col gap-2 text-left">
-                      <textarea
-                        value={jsonPegado}
-                        onChange={(e) => setJsonPegado(e.target.value)}
-                        rows={6}
-                        spellCheck={false}
-                        placeholder="Pegá aquí el JSON completo del presupuesto…"
-                        className="w-full resize-y rounded-[var(--radius-lg)] border border-border bg-surface-elevated px-3 py-2 font-mono text-[11px] leading-relaxed text-text shadow-[var(--shadow-sm)] outline-none placeholder:text-text-muted/60 focus:border-primary/60"
-                      />
-                      <div className="flex items-center justify-end gap-3">
-                        {importError && (
-                          <p className="text-[11px] font-medium text-error">{importError}</p>
-                        )}
-                        <Button
-                          size="sm"
-                          loading={importing}
-                          disabled={!jsonPegado.trim()}
-                          onClick={() => void handleImportJson(jsonPegado)}
-                        >
-                          Generar desde JSON
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                  {!importOpen && importError && (
-                    <p className="mt-2 text-center text-[11px] font-medium text-error">
-                      {importError}
-                    </p>
-                  )}
+                <div className="relative mt-6 w-full max-w-2xl text-left">
+                  {composerBody}
                 </div>
               </div>
             ) : (
-              <ul className="flex flex-col gap-5 pb-4 pr-1">
-                {messages.map((m) =>
-                  m.role === "user" ? (
-                    <li key={m.id} className="flex justify-end pl-10">
-                      <div className="max-w-[min(100%,40rem)] rounded-2xl rounded-tr-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-fg shadow-[var(--shadow-sm)]">
-                        <span className="whitespace-pre-wrap break-words">
-                          {m.text}
-                        </span>
-                      </div>
-                    </li>
-                  ) : (
-                    <li key={m.id} className="flex gap-3 pr-6">
-                      <div
-                        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-aqua to-brand-blue text-primary-fg shadow-[var(--shadow-sm)]"
-                        aria-hidden
+              <>
+              <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto">
+                <ul className="flex flex-col gap-5 pb-4 pr-1">
+                  {lastResult && (
+                    <li className="flex justify-center pb-1">
+                      <span
+                        className="inline-flex items-center gap-1.5 truncate rounded-[var(--radius-full)] border border-primary/30 bg-primary/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-primary"
+                        title={`Se usó ${lastResult.result.model} · ${RAG_LABELS[lastResult.result.ragMode]}`}
                       >
-                        <Sparkles className="size-4" />
-                      </div>
-                      {m.state === "loading" ? (
-                        <LoadingBubble />
-                      ) : m.state === "restored" ? (
-                        <div className="max-w-[min(100%,40rem)] rounded-2xl rounded-tl-md border border-border bg-surface-elevated px-4 py-2.5 text-sm leading-relaxed text-text shadow-[var(--shadow-sm)]">
+                        <span
+                          className="size-1.5 shrink-0 animate-pulse rounded-full bg-primary"
+                          aria-hidden
+                        />
+                        Se usó: {lastResult.result.model} ·{" "}
+                        {RAG_LABELS[lastResult.result.ragMode]}
+                      </span>
+                    </li>
+                  )}
+                  {messages.map((m) =>
+                    m.role === "user" ? (
+                      <li key={m.id} className="flex justify-end pl-10">
+                        <div className="max-w-[min(100%,40rem)] rounded-2xl rounded-tr-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-fg shadow-[var(--shadow-sm)]">
                           <span className="whitespace-pre-wrap break-words">
                             {m.text}
                           </span>
                         </div>
-                      ) : m.state === "error" ? (
-                        <div className="flex max-w-[min(100%,40rem)] flex-col gap-2 rounded-2xl rounded-tl-md border border-error/40 bg-error/5 px-4 py-3">
-                          <p className="flex items-center gap-2 text-sm text-error">
-                            <TriangleAlert className="size-4 shrink-0" />
-                            {m.error}
-                          </p>
-                          <div>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => handleRetry(m)}
-                            >
-                              <RotateCcw className="size-3.5" />
-                              Reintentar
-                            </Button>
-                          </div>
+                      </li>
+                    ) : (
+                      <li key={m.id} className="flex gap-3 pr-6">
+                        <div
+                          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-aqua to-brand-blue text-primary-fg shadow-[var(--shadow-sm)]"
+                          aria-hidden
+                        >
+                          <Sparkles className="size-4" />
                         </div>
-                      ) : (
-                        <ResultCard
-                          result={m.result}
-                          isActive={activeBudget?.id === m.result.budgetId}
-                          onOpen={() =>
-                            router.push(`/presupuestos/${m.result.budgetId}`)
-                          }
-                        />
-                      )}
-                    </li>
-                  ),
-                )}
-              </ul>
+                        {m.state === "loading" ? (
+                          <LoadingBubble />
+                        ) : m.state === "restored" ? (
+                          <div className="max-w-[min(100%,40rem)] rounded-2xl rounded-tl-md border border-border bg-surface-elevated px-4 py-2.5 text-sm leading-relaxed text-text shadow-[var(--shadow-sm)]">
+                            <span className="whitespace-pre-wrap break-words">
+                              {m.text}
+                            </span>
+                          </div>
+                        ) : m.state === "error" ? (
+                          <div className="flex max-w-[min(100%,40rem)] flex-col gap-2 rounded-2xl rounded-tl-md border border-error/40 bg-error/5 px-4 py-3">
+                            <p className="flex items-center gap-2 text-sm text-error">
+                              <TriangleAlert className="size-4 shrink-0" />
+                              {m.error}
+                            </p>
+                            <div>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => handleRetry(m)}
+                              >
+                                <RotateCcw className="size-3.5" />
+                                Reintentar
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <ResultCard
+                            result={m.result}
+                            isActive={activeBudget?.id === m.result.budgetId}
+                            onOpen={() =>
+                              router.push(`/presupuestos/${m.result.budgetId}`)
+                            }
+                          />
+                        )}
+                      </li>
+                    ),
+                  )}
+                </ul>
+              </div>
+              <div className="shrink-0 pt-3">{composerBody}</div>
+              </>
             )}
-          </div>
-
-          {/* Compositor */}
-          <div className="shrink-0 pt-3">
-            <div className="rounded-[1.4rem] border border-border bg-surface-elevated shadow-[var(--shadow-md)] transition-colors focus-within:border-primary/60">
-              <div className="flex items-end gap-2 px-4 pt-3">
-                <textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      void handleSend();
-                    }
-                  }}
-                  rows={1}
-                  disabled={generating}
-                  placeholder={
-                    industry
-                      ? `Describí el trabajo de ${industry} a cotizar…`
-                      : "Describí el trabajo a cotizar…"
-                  }
-                  className="max-h-40 min-h-6 flex-1 resize-none bg-transparent text-sm leading-relaxed text-text placeholder:text-text-muted focus:outline-none disabled:opacity-60"
-                />
-                <button
-                  type="button"
-                  onClick={() => void handleSend()}
-                  disabled={generating || input.trim().length < 10}
-                  aria-label="Generar presupuesto"
-                  title="Generar (Enter)"
-                  className="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-fg shadow-[var(--shadow-sm)] transition-all hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {generating ? (
-                    <span className="flex items-center gap-0.5" aria-hidden>
-                      {[0, 150, 300].map((d) => (
-                        <span
-                          key={d}
-                          className="size-1 animate-bounce rounded-full bg-primary-fg"
-                          style={{ animationDelay: `${d}ms` }}
-                        />
-                      ))}
-                    </span>
-                  ) : (
-                    <ArrowUp className="size-4" />
-                  )}
-                </button>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2.5 pt-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div
-                    className="flex items-center gap-1"
-                    role="radiogroup"
-                    aria-label="Nivel de detalle"
-                  >
-                    {NIVELES.map((n) => (
-                      <button
-                        key={n.id}
-                        type="button"
-                        role="radio"
-                        aria-checked={nivel === n.id}
-                        onClick={() => setNivel(n.id)}
-                        disabled={generating}
-                        className={cn(
-                          "rounded-[var(--radius-full)] px-2.5 py-1 text-[11px] font-semibold transition-colors",
-                          nivel === n.id
-                            ? "bg-primary/10 text-primary"
-                            : "text-text-muted hover:bg-surface hover:text-text",
-                        )}
-                      >
-                        {n.label}
-                      </button>
-                    ))}
-                  </div>
-                  {providers.length > 1 && (
-                    <Select
-                      value={provider}
-                      onChange={(e) => setProvider(e.target.value)}
-                      disabled={generating}
-                      className="h-7 w-auto py-0 text-[11px]"
-                      aria-label="Proveedor de IA"
-                    >
-                      {providers.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.label}
-                        </option>
-                      ))}
-                    </Select>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setSeccionesOpen((o) => !o)}
-                    disabled={generating}
-                    aria-expanded={seccionesOpen}
-                    className={cn(
-                      "rounded-[var(--radius-full)] px-2.5 py-1 text-[11px] font-semibold transition-colors",
-                      secciones.length > 0
-                        ? "bg-[var(--brand-orange)]/10 text-[var(--brand-orange)]"
-                        : "text-text-muted hover:bg-surface hover:text-text",
-                    )}
-                  >
-                    + Secciones{secciones.length > 0 ? ` (${secciones.length})` : ""}
-                  </button>
-                </div>
-                <span
-                  className={cn(
-                    "text-[11px] tabular-nums",
-                    remaining === 0
-                      ? "font-semibold text-error"
-                      : "text-text-muted",
-                  )}
-                >
-                  {remaining === 0
-                    ? "Sin generaciones — mejorá tu plan"
-                    : `${remaining} generaciones disponibles este mes`}
-                </span>
-              </div>
-              {seccionesOpen && (
-                <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 px-4 pb-3 pt-2.5">
-                  <span className="mr-1 text-[10px] font-bold uppercase tracking-widest text-text-muted">
-                    Incluir secciones:
-                  </span>
-                  {SECCIONES_PRESUPUESTO.map((s) => {
-                    const active = secciones.includes(s);
-                    return (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => toggleSeccion(s)}
-                        aria-pressed={active}
-                        className={cn(
-                          "rounded-[var(--radius-full)] border px-2.5 py-1 text-[11px] font-semibold transition-colors",
-                          active
-                            ? "border-[var(--brand-orange)]/50 bg-[var(--brand-orange)]/10 text-[var(--brand-orange)]"
-                            : "border-border text-text-muted hover:border-[var(--brand-orange)]/40 hover:text-text",
-                        )}
-                      >
-                        {active ? "✓ " : ""}
-                        {s}
-                      </button>
-                    );
-                  })}
-                  {secciones.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setSecciones([])}
-                      className="ml-1 text-[10px] font-semibold text-text-muted underline-offset-2 hover:text-error hover:underline"
-                    >
-                      limpiar
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-            <p className="mt-2 text-center text-[11px] text-text-muted">
-              Enter genera · Shift+Enter salto de línea · Cuanto más detalle
-              des (alcance, cantidades, plazos), mejor sale.
-            </p>
           </div>
         </div>
 
-        {/* Panel derecho: editor del borrador (estilo constructor de ITZA) */}
-        {activeBudget && (
-          <aside className="hidden min-h-0 w-[30rem] shrink-0 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-border bg-surface-elevated shadow-[var(--shadow-sm)] xl:flex 2xl:w-[34rem]">
-            <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-              <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-text-muted">
-                <PencilLine className="size-3.5 text-primary" />
-                Borrador generado
-              </span>
+        {/* Columna derecha: editor del borrador. Siempre presente y de tamaño
+            fijo — solo su contenido interno scrollea, nunca la columna. */}
+        <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden xl:pl-4">
+          <header className="flex shrink-0 items-center justify-end gap-2 pb-0.5">
+            {activeBudget && (
               <span className="flex items-center gap-1">
                 <Link
                   href={`/presupuestos/${activeBudget.id}`}
@@ -892,23 +866,113 @@ export function GenerarChat({
                   type="button"
                   onClick={() => setActiveBudget(null)}
                   className="rounded-[var(--radius-md)] p-1.5 text-text-muted transition-colors hover:bg-surface hover:text-text"
-                  title="Cerrar panel"
-                  aria-label="Cerrar panel"
+                  title="Cerrar borrador"
+                  aria-label="Cerrar borrador"
                 >
                   <X className="size-4" />
                 </button>
               </span>
-            </header>
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <BudgetEditor
-                key={activeBudget.id}
-                budget={activeBudget}
-                embedded
+            )}
+          </header>
+          <div className="min-h-0 flex-1 overflow-y-auto pt-4">
+            {!activeBudget && (
+              <div className="mb-5 grid grid-cols-1 gap-4 border-b border-border pb-5 xl:grid-cols-2">
+                <div className="flex min-w-0 flex-col gap-2">
+                  <input
+                    ref={jsonFileRef}
+                    type="file"
+                    accept=".json,application/json"
+                    className="hidden"
+                    aria-hidden
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (file) onArchivoJsonElegido(file);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => jsonFileRef.current?.click()}
+                    className="inline-flex w-fit items-center gap-1.5 rounded-[var(--radius-full)] border border-dashed border-[var(--brand-orange)]/50 bg-[var(--brand-orange)]/5 px-3.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--brand-orange)] transition-colors hover:bg-[var(--brand-orange)]/15"
+                  >
+                    <FileJson className="size-3.5" />
+                    Subir (.json) · cargar propuesta
+                  </button>
+                  <p className="text-[10px] leading-snug text-text-muted">
+                    O usá el cuadro de la derecha para pegar el mismo JSON.
+                    Sin gastar tokens: todo se procesa en el navegador.
+                  </p>
+                </div>
+                <div className="flex min-w-0 flex-col gap-2">
+                  <label
+                    htmlFor="generar-json-pegado"
+                    className="text-[10px] font-black uppercase tracking-wider text-primary"
+                  >
+                    Pegar JSON del presupuesto
+                  </label>
+                  <textarea
+                    id="generar-json-pegado"
+                    value={jsonPegado}
+                    onChange={(e) => setJsonPegado(e.target.value)}
+                    rows={6}
+                    spellCheck={false}
+                    placeholder="Pegá aquí el JSON completo."
+                    className="min-h-[120px] w-full resize-y rounded-[var(--radius-lg)] border border-border bg-surface px-3 py-2 font-mono text-[11px] leading-relaxed text-text shadow-inner outline-none placeholder:text-text-muted/60 focus:border-primary/60"
+                  />
+                  <div className="flex items-center justify-end gap-3">
+                    {importError && (
+                      <p className="text-[11px] font-medium text-error">{importError}</p>
+                    )}
+                    <Button
+                      size="sm"
+                      loading={importing}
+                      disabled={!jsonPegado.trim()}
+                      onClick={() => void handleImportJson(jsonPegado)}
+                    >
+                      Generar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <h2 className="mb-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-primary">
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  activeBudget ? "animate-pulse bg-success" : "bg-text-muted/40",
+                )}
+                aria-hidden
               />
-            </div>
-          </aside>
-        )}
+              Editor de presupuesto
+            </h2>
+
+            {activeBudget ? (
+              <BudgetEditor key={activeBudget.id} budget={activeBudget} embedded />
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+                <PencilLine className="size-6 text-text-muted/50" />
+                <p className="max-w-[200px] text-sm text-text-muted">
+                  Ingresá los detalles a la izquierda para que la IA redacte
+                  la propuesta.
+                </p>
+              </div>
+            )}
+          </div>
+        </aside>
       </div>
+
+      <ReglasIaModal
+        open={reglasOpen}
+        onClose={() => setReglasOpen(false)}
+        industryPrompt={industryPrompt}
+      />
+      <PromptExternoModal
+        open={promptExternoOpen}
+        onClose={() => setPromptExternoOpen(false)}
+        industryPrompt={industryPrompt}
+      />
+      <AyudaModal open={ayudaOpen} onClose={() => setAyudaOpen(false)} />
     </div>
   );
 }
