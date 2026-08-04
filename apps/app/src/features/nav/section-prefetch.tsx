@@ -15,6 +15,12 @@ import { usePathname, useRouter } from "next/navigation";
  * esqueleto de loading.tsx, no el contenido real. No es una opción pública
  * documentada de `router.prefetch`; si Next cambia esta API en el futuro,
  * el peor caso es que degrada sola al prefetch por default (no rompe).
+ *
+ * OJO: Next.js desactiva TODO prefetch en `next dev` (createPrefetchURL en
+ * app-router-utils.js corta con `return null` si NODE_ENV === "development",
+ * a propósito, para no gastar tiempo de compilación en rutas no visitadas).
+ * Este componente es un no-op en desarrollo por diseño de Next — solo se
+ * puede verificar su efecto en un build de producción.
  */
 const SECTIONS_TO_PRELOAD = ["/historicos", "/generar", "/presupuestos"];
 const STAGGER_MS = 400;
