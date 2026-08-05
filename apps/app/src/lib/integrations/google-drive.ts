@@ -242,6 +242,80 @@ export async function listPdfs(
   };
 }
 
+export interface DriveFolder {
+  id: string;
+  name: string;
+}
+
+export interface DriveFolderChildren {
+  folders: DriveFolder[];
+  files: DriveFile[];
+  nextPageToken: string | null;
+}
+
+/** Lista subcarpetas y PDFs directos de una carpeta de Drive (navegación en
+ *  árbol para /basedatos/presupuestos). `folderId` acepta `"root"` para "Mi
+ *  unidad". */
+export async function listFolderChildren(
+  accessToken: string,
+  folderId: string,
+  options: { pageToken?: string } = {},
+): Promise<DriveFolderChildren> {
+  const q = [
+    `'${folderId.replace(/'/g, "\\'")}' in parents`,
+    "trashed=false",
+    "(mimeType='application/vnd.google-apps.folder' or mimeType='application/pdf')",
+  ].join(" and ");
+
+  const params = new URLSearchParams({
+    q,
+    orderBy: "folder,name",
+    pageSize: "200",
+    fields:
+      "nextPageToken, files(id, name, mimeType, size, modifiedTime, webViewLink)",
+  });
+  if (options.pageToken) params.set("pageToken", options.pageToken);
+
+  const res = await fetch(`${DRIVE_FILES_URL}?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const json = (await res.json()) as {
+    files?: Array<{
+      id: string;
+      name: string;
+      mimeType: string;
+      size?: string;
+      modifiedTime: string;
+      webViewLink?: string;
+    }>;
+    nextPageToken?: string;
+    error?: { message?: string };
+  };
+  if (!res.ok) {
+    throw new Error(
+      `Google Drive list falló: ${json.error?.message ?? res.status}`,
+    );
+  }
+
+  const folders: DriveFolder[] = [];
+  const files: DriveFile[] = [];
+  for (const f of json.files ?? []) {
+    if (f.mimeType === "application/vnd.google-apps.folder") {
+      folders.push({ id: f.id, name: f.name });
+    } else {
+      files.push({
+        id: f.id,
+        name: f.name,
+        size: f.size ? Number(f.size) : null,
+        modifiedTime: f.modifiedTime,
+        webViewLink: f.webViewLink ?? null,
+      });
+    }
+  }
+
+  return { folders, files, nextPageToken: json.nextPageToken ?? null };
+}
+
 /** Descarga el contenido binario de un archivo del Drive. */
 export async function downloadFile(
   accessToken: string,

@@ -2,13 +2,14 @@ import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { apiError, badRequest, requireTenantContext } from "@/lib/api";
+import { apiError, badRequest, notFound, requireTenantContext } from "@/lib/api";
 import { generateBudgetPayload } from "@/lib/ai/generation";
 import { availableProvidersForTenant, isProviderId } from "@/lib/ai/providers";
 import { checkGenerationLimit } from "@/lib/billing/limits";
 import { recordUsage } from "@/lib/ai/usage";
 import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { generatedBudgetPayloadSchema } from "@/types/budget";
 
 export const maxDuration = 120; // RAG + LLM
 
@@ -17,6 +18,9 @@ const bodySchema = z.object({
   nivelDetalle: z.enum(["breve", "normal", "detallado"]).default("normal"),
   /** Proveedor de IA elegido por el usuario en el composer (opcional). */
   provider: z.string().optional(),
+  /** Si viene, el pedido es un cambio sobre este presupuesto (mismo hilo de
+   *  chat) en vez de una generación nueva — se edita in-place. */
+  budgetId: z.string().uuid().optional(),
 });
 
 /** Instrucción de formato que acompaña al pedido según el nivel elegido. */
@@ -74,7 +78,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // El nivel de detalle viaja como instrucción de formato; en la DB se guarda
     // solo el pedido original del usuario.
-    const { prompt, nivelDetalle, provider } = parsed.data;
+    const { prompt, nivelDetalle, provider, budgetId } = parsed.data;
     const promptParaIa =
       nivelDetalle === "normal"
         ? prompt
@@ -90,26 +94,54 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // Modo edición: el pedido es un cambio sobre un presupuesto ya generado
+    // en este mismo hilo de chat — le pasamos su contenido actual a la IA
+    // para que devuelva la versión completa actualizada, y actualizamos esa
+    // misma fila en vez de crear una nueva.
+    let existing: { id: string; content: unknown } | null = null;
+    if (budgetId) {
+      existing = await prisma.generatedBudget.findFirst({
+        where: { id: budgetId, tenantId: tenant.id },
+        select: { id: true, content: true },
+      });
+      if (!existing) return notFound("Presupuesto no encontrado.");
+    }
+    const currentContent = existing
+      ? generatedBudgetPayloadSchema.parse(existing.content)
+      : undefined;
+
     const outcome = await generateBudgetPayload({
       tenant,
       profile,
       requestPrompt: promptParaIa,
       provider: provider && isProviderId(provider) ? provider : undefined,
+      currentContent,
     });
 
-    const budget = await prisma.generatedBudget.create({
-      data: {
-        tenantId: tenant.id,
-        createdById: user.id,
-        title: outcome.payload.titulo,
-        requestPrompt: prompt,
-        content: outcome.payload,
-        totalAmount: outcome.payload.cotizacionTotal,
-        currency: outcome.payload.moneda,
-        status: "DRAFT",
-        ragSourceIds: outcome.rag.sourceIds,
-      },
-    });
+    const budget = existing
+      ? await prisma.generatedBudget.update({
+          where: { id: existing.id },
+          data: {
+            title: outcome.payload.titulo,
+            content: outcome.payload,
+            totalAmount: outcome.payload.cotizacionTotal,
+            currency: outcome.payload.moneda,
+            ragSourceIds: outcome.rag.sourceIds,
+          },
+        })
+      : await prisma.generatedBudget.create({
+          data: {
+            tenantId: tenant.id,
+            createdById: user.id,
+            title: outcome.payload.titulo,
+            requestPrompt: prompt,
+            content: outcome.payload,
+            totalAmount: outcome.payload.cotizacionTotal,
+            currency: outcome.payload.moneda,
+            status: "DRAFT",
+            ragSourceIds: outcome.rag.sourceIds,
+          },
+        });
 
     await recordUsage({
       tenantId: tenant.id,
@@ -122,7 +154,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     await logAudit({
       tenantId: tenant.id,
       actorUserId: user.id,
-      action: "BUDGET_GENERATED",
+      action: existing ? "BUDGET_EDITED" : "BUDGET_GENERATED",
       payload: {
         budgetId: budget.id,
         ragMode: outcome.rag.mode,
@@ -149,7 +181,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         provider: outcome.provider,
         model: outcome.model,
       },
-      { status: 201 },
+      { status: existing ? 200 : 201 },
     );
   } catch (err) {
     return apiError(err);

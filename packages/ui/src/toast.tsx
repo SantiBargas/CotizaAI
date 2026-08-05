@@ -75,7 +75,9 @@ export function ToastProvider({
             role="alert"
           >
             {kindIcons[t.kind]}
-            <p className="flex-1 text-sm text-text">{t.message}</p>
+            <p className="max-h-32 flex-1 overflow-y-auto break-words text-sm text-text">
+              {t.message}
+            </p>
           </div>
         ))}
       </div>

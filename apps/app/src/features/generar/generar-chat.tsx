@@ -344,6 +344,9 @@ export function GenerarChat({
           prompt: promptFinal,
           nivelDetalle: nivel,
           ...(provider && { provider }),
+          // Si ya hay un presupuesto activo en este hilo, el pedido es un
+          // cambio sobre ese mismo presupuesto (edición), no uno nuevo.
+          ...(activeBudget && { budgetId: activeBudget.id }),
         }),
       });
       const json = (await res.json()) as {
@@ -722,7 +725,7 @@ export function GenerarChat({
   );
 
   return (
-    <div className="relative left-1/2 flex min-h-0 w-screen flex-1 -translate-x-1/2 flex-col px-4 sm:px-6 lg:px-8">
+    <div className="relative left-1/2 flex min-h-0 w-screen flex-1 -translate-x-1/2 flex-col overflow-x-hidden px-4 sm:px-6 lg:px-8">
       {/* Fuera del flujo del sidebar a propósito: así no se corre cuando la
           barra abre/cierra y se puede togglear sin mover el mouse. */}
       <div className="absolute left-4 top-0.5 z-10 sm:left-6 lg:left-8">
@@ -769,7 +772,7 @@ export function GenerarChat({
               </div>
             ) : (
               <>
-              <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto">
+              <div ref={scrollRef} className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
                 <ul className="flex flex-col gap-5 pb-4 pr-1">
                   {lastResult && (
                     <li className="flex justify-center pb-1">
@@ -850,7 +853,7 @@ export function GenerarChat({
 
         {/* Columna derecha: editor del borrador. Siempre presente y de tamaño
             fijo — solo su contenido interno scrollea, nunca la columna. */}
-        <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden xl:pl-4">
+        <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden pr-2 xl:pl-4">
           <header className="flex shrink-0 items-center justify-end gap-2 pb-0.5">
             {activeBudget && (
               <span className="flex items-center gap-1">
@@ -874,7 +877,7 @@ export function GenerarChat({
               </span>
             )}
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto pt-4">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden pr-2 pb-6 pt-4">
             {!activeBudget && (
               <div className="mb-5 grid grid-cols-1 gap-4 border-b border-border pb-5 xl:grid-cols-2">
                 <div className="flex min-w-0 flex-col gap-2">

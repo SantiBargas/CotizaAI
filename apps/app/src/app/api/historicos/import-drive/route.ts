@@ -68,6 +68,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         : `${fileName}.pdf`,
       buffer,
       source: "google-drive",
+      driveFileId: fileId,
     });
 
     revalidatePath("/historicos");

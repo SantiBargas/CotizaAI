@@ -49,7 +49,7 @@ export function DeleteOrganization({
       // Navegación dura (no router.push): reinicia el cliente de Clerk desde
       // cero en vez de arrastrar cualquier estado en memoria de la
       // organización borrada.
-      window.location.href = "/dashboard";
+      window.location.href = "/inicio";
     } catch (err) {
       toast(
         "error",

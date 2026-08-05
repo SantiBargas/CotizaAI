@@ -1,7 +1,9 @@
+import Link from "next/link";
+import { ShieldCheck } from "lucide-react";
+import { auth } from "@clerk/nextjs/server";
 import { getCurrentTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { isDriveConfigured } from "@/lib/integrations/google-drive";
-import { HistoricosAuditPanel } from "@/features/historicos/historicos-audit-panel";
 import { HistoricosList } from "@/features/historicos/historicos-list";
 import type { HistoricalBudgetListItem } from "@/features/historicos/types";
 
@@ -31,7 +33,8 @@ export default async function HistoricosPage({
     );
   }
 
-  const [rows, integration, params] = await Promise.all([
+  const { userId: clerkUserId } = await auth();
+  const [rows, integration, params, membership] = await Promise.all([
     prisma.historicalBudget.findMany({
       where: { tenantId: tenant.id },
       orderBy: { createdAt: "desc" },
@@ -57,7 +60,15 @@ export default async function HistoricosPage({
       select: { accountEmail: true },
     }),
     searchParams,
+    clerkUserId
+      ? prisma.membership.findFirst({
+          where: { tenantId: tenant.id, user: { clerkUserId } },
+          select: { role: true },
+        })
+      : null,
   ]);
+  const isAdmin =
+    membership?.role === "OWNER" || membership?.role === "ADMIN";
 
   const budgets: HistoricalBudgetListItem[] = rows.map((b) => ({
     id: b.id,
@@ -89,7 +100,15 @@ export default async function HistoricosPage({
           {driveMessage.text}
         </p>
       )}
-      <HistoricosAuditPanel />
+      {isAdmin && (
+        <Link
+          href="/basedatos?view=auditoria"
+          className="flex w-fit items-center gap-1.5 text-sm font-medium text-text-muted hover:text-primary hover:underline"
+        >
+          <ShieldCheck className="size-3.5" />
+          Auditoría de calidad →
+        </Link>
+      )}
       <HistoricosList
         budgets={budgets}
         drive={{

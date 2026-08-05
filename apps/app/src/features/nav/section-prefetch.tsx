@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 /**
- * Tras aterrizar en /dashboard (el destino post-login), precarga con datos
+ * Tras aterrizar en /inicio (el destino post-login), precarga con datos
  * reales — no solo el esqueleto de loading.tsx — las secciones más usadas,
  * de a una y con un respiro entre cada una. Escalonado a propósito: si las
  * lanzáramos todas juntas competirían por las mismas 5 conexiones del pool
@@ -22,7 +22,12 @@ import { usePathname, useRouter } from "next/navigation";
  * Este componente es un no-op en desarrollo por diseño de Next — solo se
  * puede verificar su efecto en un build de producción.
  */
-const SECTIONS_TO_PRELOAD = ["/historicos", "/generar", "/presupuestos"];
+const SECTIONS_TO_PRELOAD = [
+  "/dashboard",
+  "/historicos",
+  "/generar",
+  "/presupuestos",
+];
 const STAGGER_MS = 400;
 
 type PrefetchOptions = NonNullable<
@@ -35,7 +40,7 @@ export function SectionPrefetch(): null {
   const doneRef = useRef(false);
 
   useEffect(() => {
-    if (pathname !== "/dashboard" || doneRef.current) return;
+    if (pathname !== "/inicio" || doneRef.current) return;
     doneRef.current = true;
 
     const runIdle: (cb: () => void) => void =

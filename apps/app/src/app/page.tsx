@@ -7,5 +7,5 @@ import { redirect } from "next/navigation";
  */
 export default async function RootPage(): Promise<never> {
   const { userId } = await auth();
-  redirect(userId ? "/dashboard" : "/ingresar");
+  redirect(userId ? "/inicio" : "/ingresar");
 }

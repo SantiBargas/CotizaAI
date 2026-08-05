@@ -5,13 +5,13 @@ import { usePathname } from "next/navigation";
 import { cn } from "@cotizaai/ui";
 
 const navLinks: Array<{ href: string; label: string }> = [
+  { href: "/inicio", label: "Inicio" },
   { href: "/dashboard", label: "Panel" },
   { href: "/historicos", label: "Históricos" },
   { href: "/generar", label: "Generar" },
   { href: "/presupuestos", label: "Presupuestos" },
   { href: "/formatos", label: "Formatos" },
   { href: "/perfil", label: "Perfil" },
-  { href: "/configuracion", label: "Configuración" },
 ];
 
 /** Nav principal con estado activo en aqua de marca. */

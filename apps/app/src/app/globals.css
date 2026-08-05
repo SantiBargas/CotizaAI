@@ -2,9 +2,45 @@
 @import "@cotizaai/ui/theme.css";
 @source "../../../../packages/ui/src";
 
+/* Nunca scroll horizontal a nivel documento. Necesario en particular para
+   /generar: la técnica "full-bleed" (w-screen) puede quedar unos px más
+   ancha que la pantalla visible porque 100vw incluye el ancho de la
+   scrollbar vertical — sin esto, esa diferencia sola ya genera scroll
+   horizontal de toda la página aunque ningún contenido desborde.
+   overflow-y explícito en "visible": si se deja implícito, el spec de CSS
+   auto-convierte el otro eje a "auto" apenas uno no es "visible" — eso
+   volvía al body su propio contenedor de scroll y rompía el scroll interno
+   e independiente de cada columna en /generar. */
+html,
+body {
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
 /* Clerk: sin alta self-serve — ocultar el footer del card de sign-in
    ("Don't have an account? Sign up" + badge "Secured by Clerk"). */
 .cl-footer,
 .cl-footerAction {
   display: none !important;
+}
+
+/* ── Scrollbar temática (mismo patrón que ITZA) ──────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--primary);
+  border-radius: 999px;
+  opacity: 0.7;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-hover);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--primary) transparent;
 }

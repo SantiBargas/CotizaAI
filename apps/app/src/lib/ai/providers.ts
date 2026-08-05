@@ -49,8 +49,13 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderInfo> = {
   cerebras: {
     id: "cerebras",
     label: "Cerebras",
-    defaultModel: "llama-3.3-70b",
-    fastModel: "llama3.1-8b",
+    // Cerebras dio de baja los Llama 3.x del catálogo serverless. De los 3
+    // modelos actuales (ago 2026), gemma-4-31b y zai-glm-4.7 son "preview"
+    // y devuelven 402 (payment required) en el free trial — solo
+    // gpt-oss-120b (production) está incluido, así que lo usamos para
+    // default y fast.
+    defaultModel: "gpt-oss-120b",
+    fastModel: "gpt-oss-120b",
   },
   openai: {
     id: "openai",

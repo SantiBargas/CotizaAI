@@ -1,6 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import type { InflationIndex } from "@prisma/client";
 
+export {
+  computeInflationFactor,
+  adjustAmount,
+  type InflationAdjustment,
+} from "@/lib/inflation-calc";
+
 /**
  * Ajuste por inflación (diferencial LATAM), pluggable por país/moneda.
  *
@@ -9,17 +15,9 @@ import type { InflationIndex } from "@prisma/client";
  * desde el MES SIGUIENTE al documento hasta el MES ANTERIOR al actual.
  *
  * El monto actualizado NUNCA se persiste: es un derivado que se recalcula en
- * runtime (cambiar un índice recalcula todo, sin migraciones).
+ * runtime (cambiar un índice recalcula todo, sin migraciones). El cálculo
+ * puro vive en lib/inflation-calc.ts (sin Prisma, importable desde cliente).
  */
-
-export interface InflationAdjustment {
-  /** Factor multiplicador acumulado (1 = sin ajuste). */
-  factor: number;
-  /** Cantidad de meses con índice aplicado. */
-  monthsApplied: number;
-  /** True si faltaron índices en el rango (factor parcial). */
-  incomplete: boolean;
-}
 
 /** Carga los índices de un país/moneda ordenados (una sola query). */
 export async function loadInflationIndices(
@@ -30,69 +28,6 @@ export async function loadInflationIndices(
     where: { country, currency },
     orderBy: [{ year: "asc" }, { month: "asc" }],
   });
-}
-
-/**
- * Función pura: calcula el factor acumulado desde `documentDate` hasta hoy,
- * con los índices ya cargados (evita N queries en loops del RAG).
- */
-export function computeInflationFactor(
-  documentDate: Date,
-  indices: InflationIndex[],
-  now: Date = new Date(),
-): InflationAdjustment {
-  // Rango: mes siguiente al documento → mes anterior al actual.
-  let year = documentDate.getFullYear();
-  let month = documentDate.getMonth() + 1 + 1; // mes siguiente (1-12 → +1)
-  if (month > 12) {
-    month = 1;
-    year += 1;
-  }
-  const endYear = now.getFullYear();
-  const endMonth = now.getMonth() + 1 - 1; // mes anterior al actual
-
-  const byKey = new Map<string, number>();
-  for (const idx of indices) {
-    byKey.set(`${idx.year}-${idx.month}`, idx.monthlyRate);
-  }
-
-  let factor = 1;
-  let monthsApplied = 0;
-  let incomplete = false;
-
-  while (year < endYear || (year === endYear && month <= endMonth)) {
-    const rate = byKey.get(`${year}-${month}`);
-    if (rate !== undefined) {
-      factor *= 1 + rate;
-      monthsApplied += 1;
-    } else {
-      incomplete = true;
-    }
-    month += 1;
-    if (month > 12) {
-      month = 1;
-      year += 1;
-    }
-  }
-
-  return { factor, monthsApplied, incomplete };
-}
-
-/**
- * Ajusta un monto histórico a valor presente. Solo aplica si hay índices para
- * esa moneda (p. ej. ARS con IPC INDEC); USD/EUR sin índices → sin ajuste.
- */
-export function adjustAmount(
-  amount: number,
-  documentDate: Date | null,
-  indices: InflationIndex[],
-  now: Date = new Date(),
-): { adjusted: number; adjustment: InflationAdjustment | null } {
-  if (!documentDate || indices.length === 0) {
-    return { adjusted: amount, adjustment: null };
-  }
-  const adjustment = computeInflationFactor(documentDate, indices, now);
-  return { adjusted: amount * adjustment.factor, adjustment };
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -14,9 +14,9 @@ export default async function IngresarPage({
 }: {
   searchParams: Promise<{ modo?: string }>;
 }): Promise<React.ReactElement> {
-  // Con sesión iniciada la landing no existe: directo al panel.
+  // Con sesión iniciada la landing no existe: directo a inicio.
   const { userId } = await auth();
-  if (userId) redirect("/dashboard");
+  if (userId) redirect("/inicio");
 
   const { modo } = await searchParams;
   const esRegistro = modo === "registro";
@@ -168,13 +168,13 @@ export default async function IngresarPage({
             {esRegistro ? (
               <SignUp
                 routing="hash"
-                fallbackRedirectUrl="/dashboard"
+                fallbackRedirectUrl="/inicio"
                 appearance={clerkAppearance}
               />
             ) : (
               <SignIn
                 routing="hash"
-                fallbackRedirectUrl="/dashboard"
+                fallbackRedirectUrl="/inicio"
                 appearance={clerkAppearance}
               />
             )}

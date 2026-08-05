@@ -12,6 +12,7 @@ import {
 import { isEmbeddingConfigured } from "@/lib/ai/embeddings";
 import { isStorageConfigured } from "@/lib/storage";
 import { isDriveConfigured } from "@/lib/integrations/google-drive";
+import Link from "next/link";
 import { Badge, Card, CardTitle } from "@cotizaai/ui";
 import { InflacionSync } from "@/features/configuracion/inflacion-sync";
 import { UpgradePlanButton } from "@/features/configuracion/upgrade-plan";
@@ -239,7 +240,11 @@ export default async function ConfiguracionPage(): Promise<React.ReactElement> {
         <Card className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <CardTitle>Inflación ({tenant.country}/{tenant.defaultCurrency})</CardTitle>
-            <InflacionSync />
+            {canEditAiConfig ? (
+              <InflacionSync />
+            ) : (
+              <span className="text-xs text-text-muted">Solo admins sincronizan</span>
+            )}
           </div>
           {latestIndex ? (
             <p className="text-sm text-text">
@@ -260,6 +265,14 @@ export default async function ConfiguracionPage(): Promise<React.ReactElement> {
             Los índices alimentan el ajuste automático de los montos históricos
             en la generación.
           </p>
+          {canEditAiConfig && (
+            <Link
+              href="/basedatos?view=inflacion"
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              Ver historial completo →
+            </Link>
+          )}
         </Card>
 
         {isOwner && (

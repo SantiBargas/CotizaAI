@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { apiError, badRequest, requireTenantContext } from "@/lib/api";
+import { apiError, badRequest, requireTenantRole } from "@/lib/api";
 import { logAudit } from "@/lib/audit";
 
 const bodySchema = z.object({
@@ -12,11 +12,11 @@ const bodySchema = z.object({
 
 /**
  * POST /api/historicos/audit/revisar — marca/desmarca en lote `auditReviewed`
- * para históricos del tenant de la sesión. Ver docs/tareas.md E.1.
+ * para históricos del tenant de la sesión. Solo OWNER/ADMIN. Ver docs/tareas.md E.1.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    const { tenant, user } = await requireTenantContext();
+    const { tenant, user } = await requireTenantRole(["OWNER", "ADMIN"]);
     const parsed = bodySchema.safeParse(await req.json());
     if (!parsed.success) return badRequest("Datos inválidos.");
     const { ids, revisado } = parsed.data;

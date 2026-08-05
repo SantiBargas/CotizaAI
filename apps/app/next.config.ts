@@ -15,13 +15,6 @@ const nextConfig: NextConfig = {
     // acciones o cruzados entre organizaciones.
     staleTimes: { dynamic: 1800 },
   },
-  async redirects() {
-    return [
-      // Ruta heredada de ITZA: el navegador suele autocompletarla del
-      // historial. Sin esto, Clerk la protege y después del login cae en 404.
-      { source: "/inicio", destination: "/dashboard", permanent: false },
-    ];
-  },
 };
 
 export default nextConfig;

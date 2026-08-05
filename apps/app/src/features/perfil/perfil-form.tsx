@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { PenLine, Plus, Save, Sparkles, Trash2, Upload } from "lucide-react";
+import { PenLine, Plus, Save, Sparkles, Trash2, Upload, User } from "lucide-react";
 import {
   Button,
   Card,
@@ -76,9 +76,11 @@ function leerFirma(
 export function PerfilForm({
   initial,
   tenantName,
+  initialDisplayName,
 }: {
   initial: PerfilData;
   tenantName: string;
+  initialDisplayName: string;
 }): React.ReactElement {
   const router = useRouter();
   const { toast } = useToast();
@@ -147,6 +149,8 @@ export function PerfilForm({
           Guardar perfil
         </Button>
       </div>
+
+      <UsuarioCard initialDisplayName={initialDisplayName} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="flex flex-col gap-4">
@@ -296,6 +300,78 @@ export function PerfilForm({
         onChange={(signers) => set("signers", signers)}
       />
     </div>
+  );
+}
+
+/**
+ * Nombre para mostrar del usuario actual (no del tenant): reemplaza al email
+ * como fallback en el header/Inicio cuando Clerk no tiene nombre/apellido
+ * cargado. Guardado independiente del resto del perfil — es dato personal,
+ * no de la empresa.
+ */
+function UsuarioCard({
+  initialDisplayName,
+}: {
+  initialDisplayName: string;
+}): React.ReactElement {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [displayName, setDisplayName] = useState(initialDisplayName);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave(): Promise<void> {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/perfil/usuario", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: displayName.trim() || null }),
+      });
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        throw new Error(json.error ?? "No se pudo guardar el nombre.");
+      }
+      toast("success", "Nombre guardado.");
+      router.refresh();
+    } catch (err) {
+      toast("error", err instanceof Error ? err.message : "Error inesperado.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-4">
+      <CardTitle>
+        <span className="flex items-center gap-2">
+          <User className="size-4 text-primary" />
+          Tu perfil
+        </span>
+      </CardTitle>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <div className="flex-1">
+          <Field
+            label="Nombre para mostrar"
+            hint="Aparece en el header y en Inicio en vez de tu email. Si lo dejás vacío, usamos el nombre de tu cuenta."
+          >
+            <Input
+              value={displayName}
+              placeholder="Ej: Santi Bargas"
+              maxLength={80}
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
+          </Field>
+        </div>
+        <Button
+          variant="secondary"
+          loading={saving}
+          onClick={() => void handleSave()}
+        >
+          <Save className="size-4" />
+          Guardar nombre
+        </Button>
+      </div>
+    </Card>
   );
 }
 

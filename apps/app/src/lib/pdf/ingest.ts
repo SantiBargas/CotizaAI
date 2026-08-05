@@ -28,8 +28,9 @@ export async function ingestPdfHistorical(params: {
   fileName: string;
   buffer: ArrayBuffer;
   source: "upload" | "google-drive";
+  driveFileId?: string;
 }): Promise<HistoricalBudget> {
-  const { tenant, user, fileName, buffer, source } = params;
+  const { tenant, user, fileName, buffer, source, driveFileId } = params;
 
   const contentType = fileName.toLowerCase().endsWith(".docx")
     ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -100,6 +101,7 @@ export async function ingestPdfHistorical(params: {
       documentDate,
       sourceFileUrl,
       sourceFileName: fileName,
+      driveFileId: driveFileId ?? null,
       rawText,
       structuredContent,
       createdByAI,

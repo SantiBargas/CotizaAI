@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { getCurrentTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { PerfilForm, type PerfilData } from "@/features/perfil/perfil-form";
@@ -27,9 +28,16 @@ export default async function PerfilPage(): Promise<React.ReactElement> {
     );
   }
 
-  const profile = await prisma.companyProfile.findUnique({
-    where: { tenantId: tenant.id },
-  });
+  const { userId: clerkUserId } = await auth();
+  const [profile, currentUser] = await Promise.all([
+    prisma.companyProfile.findUnique({ where: { tenantId: tenant.id } }),
+    clerkUserId
+      ? prisma.user.findUnique({
+          where: { clerkUserId },
+          select: { displayName: true },
+        })
+      : null,
+  ]);
   const companyData = companyDataSchema.safeParse(profile?.companyData ?? {});
 
   const data: PerfilData = {
@@ -44,5 +52,11 @@ export default async function PerfilPage(): Promise<React.ReactElement> {
     signers: parseSigners(profile?.signers),
   };
 
-  return <PerfilForm initial={data} tenantName={tenant.name} />;
+  return (
+    <PerfilForm
+      initial={data}
+      tenantName={tenant.name}
+      initialDisplayName={currentUser?.displayName ?? ""}
+    />
+  );
 }

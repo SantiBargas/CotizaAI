@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { cookies } from "next/headers";
 import { ClerkProvider } from "@clerk/nextjs";
+import { PwaRegister } from "@/features/nav/pwa-register";
 import "./globals.css";
 
 const inter = Inter({
@@ -35,7 +36,10 @@ export default async function RootLayout({
         data-theme={theme}
         className={`${inter.variable} h-full antialiased`}
       >
-        <body className="min-h-full flex flex-col">{children}</body>
+        <body className="flex h-full flex-col overflow-hidden">
+          <PwaRegister />
+          {children}
+        </body>
       </html>
     </ClerkProvider>
   );

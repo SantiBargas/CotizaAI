@@ -166,11 +166,19 @@ export function AiProvidersPanel({
                 <div>
                   <p className="text-sm font-medium text-text">{p.label}</p>
                   <p className="text-xs text-text-muted">{p.defaultModel}</p>
+                  {pingResult && !pingResult.ok && pingResult.error && (
+                    <p className="mt-1 max-w-sm break-words text-xs text-error">
+                      {pingResult.error}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 {pingResult && (
-                  <Badge variant={pingResult.ok ? "success" : "error"}>
+                  <Badge
+                    variant={pingResult.ok ? "success" : "error"}
+                    title={pingResult.error}
+                  >
                     {pingResult.ok ? `${pingResult.latencyMs}ms` : "Error"}
                   </Badge>
                 )}

@@ -299,6 +299,7 @@ function buildSystemPrompt(
   tenant: Tenant,
   profile: CompanyProfile | null,
   ragContext: string,
+  currentContent: GeneratedBudgetPayload | null,
 ): string {
   const parts: string[] = [
     "Sos un asistente experto en redactar presupuestos y cotizaciones comerciales profesionales.",
@@ -342,6 +343,24 @@ function buildSystemPrompt(
       "No hay históricos de referencia disponibles: generá el presupuesto desde el conocimiento del rubro, siendo conservador con los precios.",
     );
   }
+  if (currentContent) {
+    parts.push(
+      [
+        "MODO EDICIÓN: ya existe un presupuesto generado antes en esta misma",
+        "conversación (JSON abajo). El próximo mensaje del usuario es un pedido",
+        "de CAMBIO puntual sobre ESE presupuesto, no un pedido nuevo desde cero.",
+        "",
+        "- Aplicá solo el cambio pedido; dejá todo lo demás (otros bloques,",
+        "  título, montos, datos) exactamente igual salvo que el cambio los",
+        "  afecte directamente.",
+        "- Volvé a invocar `emitir_presupuesto` con el presupuesto COMPLETO ya",
+        "  actualizado (todos los campos y bloques, no solo lo que cambió).",
+        "",
+        "PRESUPUESTO ACTUAL (JSON):",
+        JSON.stringify(currentContent),
+      ].join("\n"),
+    );
+  }
   return parts.join("\n\n");
 }
 
@@ -372,6 +391,9 @@ export async function generateBudgetPayload(params: {
   /** Proveedor elegido explícitamente por el usuario en el composer (pisa el
    *  default del tenant si está disponible). */
   provider?: ProviderId;
+  /** Si viene, el pedido es una EDICIÓN sobre este presupuesto ya generado
+   *  en la misma conversación (no una generación nueva desde cero). */
+  currentContent?: GeneratedBudgetPayload;
 }): Promise<GenerationOutcome> {
   const [allowedProviders, aiConfig] = await Promise.all([
     availableProvidersForTenant(params.tenant.id),
@@ -401,7 +423,12 @@ export async function generateBudgetPayload(params: {
       [
         {
           role: "system",
-          content: buildSystemPrompt(params.tenant, params.profile, rag.contextText),
+          content: buildSystemPrompt(
+            params.tenant,
+            params.profile,
+            rag.contextText,
+            params.currentContent ?? null,
+          ),
         },
         { role: "user", content: params.requestPrompt },
       ],

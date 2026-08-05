@@ -68,6 +68,7 @@ enum AuditAction {
   HISTORICAL_INDEXED
   HISTORICAL_AUDIT_REVIEWED
   BUDGET_GENERATED
+  BUDGET_EDITED
   PROFILE_UPDATED
   SUBSCRIPTION_CHANGED
   INTEGRATION_CONNECTED
@@ -118,6 +119,9 @@ model User {
   clerkUserId String   @unique
   email       String   @unique
   name        String?
+  // Nombre para mostrar editable en /perfil, independiente del `name`
+  // sincronizado desde Clerk (ese lo pisa el webhook en cada login/cambio).
+  displayName String?
   imageUrl    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -199,6 +203,9 @@ model HistoricalBudget {
   documentDate       DateTime? // fecha del presupuesto original (para inflación)
   sourceFileUrl      String? // PDF original en object storage
   sourceFileName     String?
+  // Id del archivo en Google Drive, si se importó desde ahí (matching robusto
+  // para el árbol de /basedatos/presupuestos — el nombre de archivo es frágil).
+  driveFileId        String?
   rawText            String?                @db.Text // texto crudo extraído (fallback)
   structuredContent  Json? // cajitas semánticas extraídas por IA
   status             HistoricalBudgetStatus @default(PENDING_REVIEW)
@@ -210,6 +217,7 @@ model HistoricalBudget {
   tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   chunks BudgetChunk[]
 
+  @@unique([tenantId, driveFileId])
   @@index([tenantId])
   @@index([tenantId, status])
 }

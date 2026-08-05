@@ -21,13 +21,16 @@ export function Badge({
   variant = "neutral",
   children,
   className,
+  title,
 }: {
   variant?: BadgeVariant;
   children: React.ReactNode;
   className?: string;
+  title?: string;
 }): React.ReactElement {
   return (
     <span
+      title={title}
       className={cn(
         "inline-flex items-center gap-1 rounded-[var(--radius-full)] border px-2.5 py-0.5 text-xs font-medium",
         variantClasses[variant],
